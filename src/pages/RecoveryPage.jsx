@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { sendRecoveryMail } from '../api/client'
 import './RecoveryPage.css'
 
@@ -7,9 +7,14 @@ export function RecoveryPage({ t, onNavigate }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const submittingRef = useRef(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (submittingRef.current) {
+      return
+    }
+    submittingRef.current = true
     setStatus('')
     setError('')
     setBusy(true)
@@ -19,11 +24,14 @@ export function RecoveryPage({ t, onNavigate }) {
 
     try {
       await sendRecoveryMail(email)
+      setError('')
       setStatus('Письмо восстановления отправлено. Проверьте почту.')
       event.currentTarget.reset()
     } catch (err) {
+      setStatus('')
       setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')
     } finally {
+      submittingRef.current = false
       setBusy(false)
     }
   }

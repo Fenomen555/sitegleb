@@ -184,15 +184,19 @@ def send_email(to_email: str, subject: str, text: str, html: str | None = None) 
 
 
 def log_mail_event(kind: str, email: str, status_value: str, error_message: str | None = None) -> None:
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO mail_events (kind, email, status, error_message)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (kind, email, status_value, error_message),
-            )
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO mail_events (kind, email, status, error_message)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (kind, email, status_value, error_message),
+                )
+    except Exception:
+        # Mail delivery must not be reported as failed just because audit logging failed.
+        pass
 
 
 def create_tables() -> None:
@@ -501,10 +505,10 @@ def send_registration_mail(payload: RegistrationMailPayload) -> dict[str, bool]:
     """
     try:
         send_email(email, subject, text, html)
-        log_mail_event("registration", email, "sent")
     except Exception as exc:
         log_mail_event("registration", email, "failed", str(exc)[:1000])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
+    log_mail_event("registration", email, "sent")
     return {"ok": True}
 
 
@@ -528,10 +532,10 @@ def send_recovery_mail(payload: RecoveryMailPayload) -> dict[str, bool]:
     """
     try:
         send_email(email, subject, text, html)
-        log_mail_event("recovery", email, "sent")
     except Exception as exc:
         log_mail_event("recovery", email, "failed", str(exc)[:1000])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
+    log_mail_event("recovery", email, "sent")
     return {"ok": True}
 
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { sendRegistrationMail } from '../api/client'
 import './RegisterPage.css'
 
@@ -7,9 +7,14 @@ export function RegisterPage({ t, onNavigate }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const submittingRef = useRef(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (submittingRef.current) {
+      return
+    }
+    submittingRef.current = true
     setStatus('')
     setError('')
     setBusy(true)
@@ -20,11 +25,14 @@ export function RegisterPage({ t, onNavigate }) {
 
     try {
       await sendRegistrationMail(email, promo || null)
+      setError('')
       setStatus('Письмо по регистрации отправлено. Проверьте почту.')
       event.currentTarget.reset()
     } catch (err) {
+      setStatus('')
       setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')
     } finally {
+      submittingRef.current = false
       setBusy(false)
     }
   }
