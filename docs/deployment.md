@@ -11,11 +11,18 @@ Deployment to the server is disabled until `DEPLOY_ENABLED=true` is added in rep
 - `SERVER_SSH_KEY` - private SSH key that can connect to the server
 - `SERVER_PORT` - optional SSH port, defaults to `22`
 
+The matching public deploy key must be present on the server in:
+
+```text
+/root/.ssh/authorized_keys
+```
+
 ## Recommended GitHub variables
 
 - `DEPLOY_ENABLED` - set to `true` when SSH access is ready
 - `SERVER_DEPLOY_PATH` - defaults to `/root/site/vision-site`
-- `SERVER_WEB_PROJECT` - defaults to `/var/www/visionoftrad_usr/projects/vision-site`
+- `SERVER_WEB_ROOT` - defaults to `/var/www/visionoftrad_usr/data/www/visionoftrading.com`
+- `SERVER_WEB_OWNER` - defaults to `visionoftrad_usr:visionoftrad_usr`
 
 ## Server layout
 
@@ -31,8 +38,14 @@ Then it updates:
 /root/site/vision-site/current
 ```
 
-If `/var/www/visionoftrad_usr/projects/vision-site` exists, the workflow also refreshes:
+Before publishing, the workflow creates a backup of the current live web root:
 
 ```text
-/var/www/visionoftrad_usr/projects/vision-site/dist
+/root/site/vision-site/backups/web-root-before-<commit-sha>.tar.gz
+```
+
+Then it refreshes the Nginx web root:
+
+```text
+/var/www/visionoftrad_usr/data/www/visionoftrading.com
 ```
