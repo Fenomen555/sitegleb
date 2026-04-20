@@ -19,7 +19,8 @@ export function RegisterPage({ t, onNavigate }) {
     setError('')
     setBusy(true)
 
-    const form = new FormData(event.currentTarget)
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
     const email = String(form.get('email') || '').trim()
     const promo = String(form.get('promo') || '').trim()
 
@@ -31,7 +32,7 @@ export function RegisterPage({ t, onNavigate }) {
           ? 'Заявка принята. Письмо регистрации сейчас выключено администратором.'
           : 'Письмо по регистрации отправлено. Проверьте почту.',
       )
-      event.currentTarget.reset()
+      formElement.reset()
     } catch (err) {
       setStatus('')
       setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')

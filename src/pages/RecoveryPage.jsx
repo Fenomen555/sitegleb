@@ -19,7 +19,8 @@ export function RecoveryPage({ t, onNavigate }) {
     setError('')
     setBusy(true)
 
-    const form = new FormData(event.currentTarget)
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
     const email = String(form.get('email') || '').trim()
 
     try {
@@ -30,7 +31,7 @@ export function RecoveryPage({ t, onNavigate }) {
           ? 'Запрос принят. Письмо восстановления сейчас выключено администратором.'
           : 'Письмо восстановления отправлено. Проверьте почту.',
       )
-      event.currentTarget.reset()
+      formElement.reset()
     } catch (err) {
       setStatus('')
       setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')

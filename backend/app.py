@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from html import escape, unescape
+from pathlib import Path
 from typing import Any
 
 import pymysql
@@ -23,6 +24,8 @@ SESSION_DAYS = 14
 PASSWORD_ITERATIONS = 260_000
 MAIL_TEMPLATE_KINDS = {"registration", "recovery"}
 BRAND_LOGO_URL = "https://visionoftrading.com/mail-avatar.png"
+BRAND_LOGO_CID = "vision-mail-avatar"
+BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "mail-avatar.png"
 
 
 app = FastAPI(title="Vision API")
@@ -249,6 +252,12 @@ def get_mail_template(kind: str) -> dict[str, Any]:
             return row
 
 
+def html_with_inline_assets(html: str) -> tuple[str, list[tuple[str, Path]]]:
+    if BRAND_LOGO_URL not in html or not BRAND_LOGO_PATH.exists():
+        return html, []
+    return html.replace(BRAND_LOGO_URL, f"cid:{BRAND_LOGO_CID}"), [(BRAND_LOGO_CID, BRAND_LOGO_PATH)]
+
+
 def send_email(to_email: str, subject: str, text: str, html: str | None = None) -> None:
     host = os.getenv("SMTP_HOST")
     username = os.getenv("SMTP_USER")
@@ -262,7 +271,17 @@ def send_email(to_email: str, subject: str, text: str, html: str | None = None) 
     message["Subject"] = subject
     message.set_content(text)
     if html:
-        message.add_alternative(html, subtype="html")
+        html_body, inline_assets = html_with_inline_assets(html)
+        message.add_alternative(html_body, subtype="html")
+        html_part = message.get_payload()[-1]
+        for content_id, asset_path in inline_assets:
+            html_part.add_related(
+                asset_path.read_bytes(),
+                maintype="image",
+                subtype="png",
+                cid=f"<{content_id}>",
+                filename=asset_path.name,
+            )
 
     port = env_int("SMTP_PORT", 587)
     timeout = env_int("SMTP_TIMEOUT", 20)
