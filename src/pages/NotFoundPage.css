@@ -1,0 +1,31 @@
+﻿.not-found-page {
+  min-height: 58vh;
+  display: grid;
+  place-items: center;
+  padding-top: 2.1rem;
+  padding-bottom: 2.5rem;
+}
+
+.not-found-box {
+  width: min(620px, 100%);
+  text-align: center;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(145, 186, 224, 0.44);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 30px rgba(20, 58, 100, 0.1);
+  padding: 1.8rem;
+}
+
+.not-found-box h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.9rem);
+  color: #163c64;
+}
+
+.not-found-box p {
+  margin: 0.7rem auto 1.1rem;
+  color: #446688;
+  max-width: 50ch;
+  line-height: 1.6;
+}
+

@@ -1,0 +1,80 @@
+.rate-ticker {
+  border: 1px solid rgba(115, 160, 200, 0.34);
+  border-radius: 20px;
+  padding: 0.95rem;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.88), rgba(237, 248, 255, 0.72)),
+    radial-gradient(circle at 90% 10%, rgba(103, 193, 255, 0.14), transparent 62%);
+  overflow: visible;
+  max-height: none;
+}
+
+.ticker-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  color: #193f67;
+}
+
+.ticker-head p {
+  margin: 0.25rem 0 0;
+  color: #567ba3;
+  line-height: 1.48;
+  font-size: 0.88rem;
+}
+
+.ticker-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.rate-card {
+  border-radius: 12px;
+  border: 1px solid rgba(120, 165, 202, 0.3);
+  padding: 0.6rem;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.rate-card.up {
+  border-color: rgba(56, 180, 120, 0.44);
+}
+
+.rate-card.down {
+  border-color: rgba(229, 99, 128, 0.4);
+}
+
+.rate-card .pair {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #567ca4;
+  letter-spacing: 0.05em;
+}
+
+.rate-card .price {
+  margin: 0.18rem 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #183e67;
+}
+
+.delta {
+  margin: 0.16rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.delta.up {
+  color: var(--ok);
+}
+
+.delta.down {
+  color: var(--bad);
+}
+
+@media (max-width: 560px) {
+  .ticker-grid {
+    grid-template-columns: 1fr;
+  }
+}

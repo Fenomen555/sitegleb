@@ -1,0 +1,123 @@
+﻿.register-page {
+  padding: 2.6rem 0 3rem;
+  display: grid;
+  place-items: center;
+}
+
+.register-shell {
+  width: min(590px, 100%);
+  border-radius: 28px;
+  border: 1px solid rgba(117, 161, 200, 0.34);
+  background:
+    linear-gradient(152deg, rgba(255, 255, 255, 0.88), rgba(237, 248, 255, 0.75)),
+    radial-gradient(circle at 14% 8%, rgba(106, 196, 255, 0.18), transparent 50%);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+  padding: 1.5rem;
+}
+
+.register-shell h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(2rem, 4.6vw, 3rem);
+  letter-spacing: -0.02em;
+  color: #12385f;
+}
+
+.auth-subtitle {
+  margin: 0.45rem 0 0;
+  text-align: center;
+  color: #5b80a7;
+  line-height: 1.6;
+}
+
+.register-form {
+  margin-top: 1.15rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.register-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #325d88;
+  font-weight: 700;
+}
+
+.register-form input[type='email'],
+.register-form input[type='password'],
+.register-form input[type='text'] {
+  min-height: 48px;
+  border: 1px solid rgba(116, 162, 201, 0.36);
+  border-radius: 12px;
+  padding: 0 0.8rem;
+  background: rgba(255, 255, 255, 0.76);
+  color: #153d66;
+}
+
+.register-form input::placeholder {
+  color: rgba(95, 134, 173, 0.74);
+}
+
+.register-form input:focus {
+  outline: none;
+  border-color: rgba(56, 131, 207, 0.72);
+  box-shadow: 0 0 0 4px rgba(79, 157, 233, 0.18);
+}
+
+.register-agree {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: #4f7399 !important;
+  font-weight: 500 !important;
+}
+
+.register-agree input {
+  width: 17px;
+  height: 17px;
+  margin-top: 0.24rem;
+  accent-color: #2899f1;
+}
+
+.register-submit {
+  margin-top: 0.1rem;
+  min-height: 52px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.015em;
+  background: linear-gradient(92deg, #1ab2ff, #3156ec);
+}
+
+.register-switch {
+  margin-top: 0.95rem;
+  border: 0;
+  background: transparent;
+  color: #2e76bb;
+  border-bottom: 1px solid rgba(76, 127, 181, 0.4);
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .register-page {
+    padding-top: 1rem;
+    padding-bottom: 1.4rem;
+  }
+
+  .register-shell {
+    border-radius: 20px;
+    padding: 0.9rem;
+  }
+
+  .register-shell h1 {
+    font-size: clamp(1.7rem, 8.8vw, 2.3rem);
+  }
+
+  .auth-subtitle {
+    margin-top: 0.3rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
+  }
+}

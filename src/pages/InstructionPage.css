@@ -1,0 +1,125 @@
+﻿.instruction-page {
+  padding-top: 2.3rem;
+  padding-bottom: 2.4rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.instruction-hero {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(145, 186, 225, 0.46);
+  background:
+    radial-gradient(760px 350px at 80% 0%, rgba(85, 177, 255, 0.2), transparent 65%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(238, 249, 255, 0.9));
+  padding: 1.2rem;
+}
+
+.instruction-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.step-card {
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(148, 189, 226, 0.44);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 1rem;
+}
+
+.step-card h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #1a416a;
+}
+
+.step-card p {
+  margin: 0.55rem 0 0;
+  color: #426486;
+  line-height: 1.6;
+}
+
+.instruction-checklist,
+.instruction-faq {
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  border: 1px solid rgba(146, 187, 224, 0.44);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.instruction-checklist h2,
+.instruction-faq h2 {
+  margin: 0;
+  font-size: 1.52rem;
+  color: #193f67;
+}
+
+.instruction-checklist ul {
+  margin: 0.82rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.52rem;
+}
+
+.instruction-checklist li {
+  position: relative;
+  padding-left: 1.2rem;
+  line-height: 1.55;
+  color: #446688;
+}
+
+.instruction-checklist li::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: linear-gradient(120deg, #27bcff, #3045ff);
+  position: absolute;
+  left: 0;
+  top: 0.56rem;
+}
+
+.instruction-faq h2 {
+  margin-bottom: 0.82rem;
+}
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.faq-card {
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(147, 187, 223, 0.42);
+  background: rgba(243, 251, 255, 0.82);
+  padding: 0.84rem;
+}
+
+.faq-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #1b436e;
+}
+
+.faq-card p {
+  margin: 0.54rem 0 0;
+  line-height: 1.55;
+  color: #446688;
+}
+
+@media (max-width: 960px) {
+  .instruction-steps,
+  .faq-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .instruction-page {
+    padding-top: 1.8rem;
+    gap: 0.8rem;
+  }
+}
+

@@ -1,0 +1,106 @@
+﻿.recovery-page {
+  padding: 2.6rem 0 3rem;
+  display: grid;
+  place-items: center;
+}
+
+.recovery-shell {
+  width: min(560px, 100%);
+  border-radius: 28px;
+  border: 1px solid rgba(117, 161, 200, 0.34);
+  background:
+    linear-gradient(152deg, rgba(255, 255, 255, 0.88), rgba(237, 248, 255, 0.75)),
+    radial-gradient(circle at 14% 8%, rgba(106, 196, 255, 0.18), transparent 50%);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+  padding: 1.5rem;
+}
+
+.recovery-shell h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(1.9rem, 4.2vw, 2.7rem);
+  letter-spacing: -0.02em;
+  color: #12385f;
+}
+
+.auth-subtitle {
+  margin: 0.45rem 0 0;
+  text-align: center;
+  color: #5b80a7;
+  line-height: 1.6;
+}
+
+.recovery-form {
+  margin-top: 1.15rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.recovery-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #325d88;
+  font-weight: 700;
+}
+
+.recovery-form input {
+  min-height: 48px;
+  border: 1px solid rgba(116, 162, 201, 0.36);
+  border-radius: 12px;
+  padding: 0 0.8rem;
+  background: rgba(255, 255, 255, 0.76);
+  color: #153d66;
+}
+
+.recovery-form input::placeholder {
+  color: rgba(95, 134, 173, 0.74);
+}
+
+.recovery-form input:focus {
+  outline: none;
+  border-color: rgba(56, 131, 207, 0.72);
+  box-shadow: 0 0 0 4px rgba(79, 157, 233, 0.18);
+}
+
+.recovery-submit {
+  margin-top: 0.1rem;
+  min-height: 52px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.015em;
+  background: linear-gradient(92deg, #1ab2ff, #3156ec);
+}
+
+.recovery-switch {
+  margin-top: 0.95rem;
+  border: 0;
+  background: transparent;
+  color: #2e76bb;
+  border-bottom: 1px solid rgba(76, 127, 181, 0.4);
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .recovery-page {
+    padding-top: 1rem;
+    padding-bottom: 1.4rem;
+  }
+
+  .recovery-shell {
+    border-radius: 20px;
+    padding: 0.9rem;
+  }
+
+  .recovery-shell h1 {
+    font-size: clamp(1.6rem, 8.2vw, 2.1rem);
+  }
+
+  .auth-subtitle {
+    margin-top: 0.3rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
+  }
+}
