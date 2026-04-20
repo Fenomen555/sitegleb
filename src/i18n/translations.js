@@ -6,7 +6,7 @@ export const translations = {
       title: 'Vision Of Trading',
     },
     nav: {
-      brand: 'Vision of Trading',
+      brand: 'Vision',
       brandSubtitle: 'Команда Pocket Option',
       menuLabel: 'Меню',
       closeMenuLabel: 'Закрыть меню',
@@ -289,7 +289,7 @@ export const translations = {
       title: 'Vision Of Trading',
     },
     nav: {
-      brand: 'Vision of Trading',
+      brand: 'Vision',
       brandSubtitle: 'Pocket Option Team',
       menuLabel: 'Menu',
       closeMenuLabel: 'Close menu',
