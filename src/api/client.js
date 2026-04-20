@@ -23,6 +23,20 @@ export function fetchPublicNews() {
   return apiRequest('/api/news')
 }
 
+export function sendRegistrationMail(email, promo) {
+  return apiRequest('/api/auth/register-mail', {
+    method: 'POST',
+    body: JSON.stringify({ email, promo }),
+  })
+}
+
+export function sendRecoveryMail(email) {
+  return apiRequest('/api/auth/recovery-mail', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
 export function getAdminMe() {
   return apiRequest('/api/admin/me')
 }

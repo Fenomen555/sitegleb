@@ -1,10 +1,31 @@
-﻿import './RecoveryPage.css'
+import { useState } from 'react'
+import { sendRecoveryMail } from '../api/client'
+import './RecoveryPage.css'
 
 export function RecoveryPage({ t, onNavigate }) {
   const recovery = t.auth.recovery
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
+    setStatus('')
+    setError('')
+    setBusy(true)
+
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') || '').trim()
+
+    try {
+      await sendRecoveryMail(email)
+      setStatus('Письмо восстановления отправлено. Проверьте почту.')
+      event.currentTarget.reset()
+    } catch (err) {
+      setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -16,11 +37,14 @@ export function RecoveryPage({ t, onNavigate }) {
         <form className="recovery-form" onSubmit={handleSubmit}>
           <label>
             {recovery.email}
-            <input type="email" placeholder="name@email.com" required />
+            <input name="email" type="email" placeholder="name@email.com" required />
           </label>
 
-          <button type="submit" className="recovery-submit">
-            {recovery.submit}
+          {status && <p className="auth-message success">{status}</p>}
+          {error && <p className="auth-message error">{error}</p>}
+
+          <button type="submit" className="recovery-submit" disabled={busy}>
+            {busy ? 'Отправляем...' : recovery.submit}
           </button>
         </form>
 

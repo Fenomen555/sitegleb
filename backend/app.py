@@ -4,7 +4,11 @@ import hmac
 import json
 import os
 import secrets
+import smtplib
 from datetime import date, datetime, timedelta, timezone
+from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
+from html import escape
 from typing import Any
 
 import pymysql
@@ -26,6 +30,13 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
 
 
 def db_config() -> dict[str, Any]:
@@ -124,6 +135,66 @@ def serialize_admin(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def smtp_from_header() -> str:
+    value = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", ""))
+    name, address = parseaddr(value)
+    if name and address:
+        return formataddr((name, address))
+    return value
+
+
+def normalize_email(value: str) -> str:
+    email = value.strip()
+    _, address = parseaddr(email)
+    if address != email or "@" not in address or "." not in address.rsplit("@", 1)[-1]:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid email")
+    return address
+
+
+def send_email(to_email: str, subject: str, text: str, html: str | None = None) -> None:
+    host = os.getenv("SMTP_HOST")
+    username = os.getenv("SMTP_USER")
+    password = os.getenv("SMTP_PASSWORD")
+    if not host or not username or not password:
+        raise RuntimeError("SMTP settings are not configured")
+
+    message = EmailMessage()
+    message["From"] = smtp_from_header()
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.set_content(text)
+    if html:
+        message.add_alternative(html, subtype="html")
+
+    port = env_int("SMTP_PORT", 587)
+    timeout = env_int("SMTP_TIMEOUT", 20)
+    if env_bool("SMTP_USE_SSL", False):
+        with smtplib.SMTP_SSL(host, port, timeout=timeout) as smtp:
+            smtp.login(username, password)
+            smtp.send_message(message)
+        return
+
+    with smtplib.SMTP(host, port, timeout=timeout) as smtp:
+        smtp.ehlo()
+        if env_bool("SMTP_STARTTLS", True):
+            smtp.starttls()
+            smtp.ehlo()
+        smtp.login(username, password)
+        smtp.send_message(message)
+
+
+def log_mail_event(kind: str, email: str, status_value: str, error_message: str | None = None) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mail_events (kind, email, status, error_message)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (kind, email, status_value, error_message),
+            )
+
+
 def create_tables() -> None:
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -176,6 +247,21 @@ def create_tables() -> None:
                   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   INDEX idx_news_published_at (published_at),
                   INDEX idx_news_is_published (is_published)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mail_events (
+                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  kind VARCHAR(40) NOT NULL,
+                  email VARCHAR(255) NOT NULL,
+                  status VARCHAR(30) NOT NULL,
+                  error_message TEXT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_mail_events_kind (kind),
+                  INDEX idx_mail_events_email (email),
+                  INDEX idx_mail_events_created_at (created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """
             )
@@ -325,6 +411,15 @@ class LoginPayload(BaseModel):
     password: str = Field(min_length=6, max_length=256)
 
 
+class RegistrationMailPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    promo: str | None = Field(default=None, max_length=120)
+
+
+class RecoveryMailPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+
+
 class AdminCreatePayload(BaseModel):
     login: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=8, max_length=256)
@@ -379,6 +474,65 @@ def get_public_news() -> list[dict[str, Any]]:
                 """
             )
             return [serialize_news(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/auth/register-mail")
+def send_registration_mail(payload: RegistrationMailPayload) -> dict[str, bool]:
+    email = normalize_email(payload.email)
+    subject = "Vision: регистрация получена"
+    text = (
+        "Здравствуйте!\n\n"
+        "Мы получили вашу заявку на регистрацию в Vision.\n"
+        "Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.\n\n"
+        "Если вы не отправляли заявку, просто проигнорируйте это письмо."
+    )
+    promo = (payload.promo or "").strip()
+    if promo:
+        text += f"\n\nПромокод из заявки: {promo}"
+    promo_html = f"<p><b>Промокод:</b> {escape(promo)}</p>" if promo else ""
+    html = f"""
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102d4d">
+      <h2>Регистрация получена</h2>
+      <p>Мы получили вашу заявку на регистрацию в <b>Vision</b>.</p>
+      <p>Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.</p>
+      {promo_html}
+      <p style="color:#55779c">Если вы не отправляли заявку, просто проигнорируйте это письмо.</p>
+    </div>
+    """
+    try:
+        send_email(email, subject, text, html)
+        log_mail_event("registration", email, "sent")
+    except Exception as exc:
+        log_mail_event("registration", email, "failed", str(exc)[:1000])
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
+    return {"ok": True}
+
+
+@app.post("/api/auth/recovery-mail")
+def send_recovery_mail(payload: RecoveryMailPayload) -> dict[str, bool]:
+    email = normalize_email(payload.email)
+    subject = "Vision: восстановление пароля"
+    text = (
+        "Здравствуйте!\n\n"
+        "Мы получили запрос на восстановление пароля для аккаунта Vision.\n"
+        "На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.\n\n"
+        "Если вы не запрашивали восстановление, просто проигнорируйте это письмо."
+    )
+    html = """
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102d4d">
+      <h2>Восстановление пароля</h2>
+      <p>Мы получили запрос на восстановление пароля для аккаунта <b>Vision</b>.</p>
+      <p>На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.</p>
+      <p style="color:#55779c">Если вы не запрашивали восстановление, просто проигнорируйте это письмо.</p>
+    </div>
+    """
+    try:
+        send_email(email, subject, text, html)
+        log_mail_event("recovery", email, "sent")
+    except Exception as exc:
+        log_mail_event("recovery", email, "failed", str(exc)[:1000])
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
+    return {"ok": True}
 
 
 @app.post("/api/admin/login")

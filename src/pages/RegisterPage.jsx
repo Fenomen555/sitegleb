@@ -1,10 +1,32 @@
-﻿import './RegisterPage.css'
+import { useState } from 'react'
+import { sendRegistrationMail } from '../api/client'
+import './RegisterPage.css'
 
 export function RegisterPage({ t, onNavigate }) {
   const register = t.auth.register
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
+    setStatus('')
+    setError('')
+    setBusy(true)
+
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') || '').trim()
+    const promo = String(form.get('promo') || '').trim()
+
+    try {
+      await sendRegistrationMail(email, promo || null)
+      setStatus('Письмо по регистрации отправлено. Проверьте почту.')
+      event.currentTarget.reset()
+    } catch (err) {
+      setError('Не удалось отправить письмо. Попробуйте еще раз чуть позже.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -16,17 +38,17 @@ export function RegisterPage({ t, onNavigate }) {
         <form className="register-form" onSubmit={handleSubmit}>
           <label>
             {register.email}
-            <input type="email" placeholder="name@email.com" required />
+            <input name="email" type="email" placeholder="name@email.com" required />
           </label>
 
           <label>
             {register.password}
-            <input type="password" placeholder="••••••••" required />
+            <input name="password" type="password" placeholder="••••••••" required />
           </label>
 
           <label>
             {register.promo}
-            <input type="text" />
+            <input name="promo" type="text" />
           </label>
 
           <label className="register-agree">
@@ -34,8 +56,11 @@ export function RegisterPage({ t, onNavigate }) {
             <span>{register.agree}</span>
           </label>
 
-          <button type="submit" className="register-submit">
-            {register.submit}
+          {status && <p className="auth-message success">{status}</p>}
+          {error && <p className="auth-message error">{error}</p>}
+
+          <button type="submit" className="register-submit" disabled={busy}>
+            {busy ? 'Отправляем...' : register.submit}
           </button>
         </form>
 
@@ -46,4 +71,3 @@ export function RegisterPage({ t, onNavigate }) {
     </div>
   )
 }
-
