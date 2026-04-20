@@ -30,11 +30,16 @@ jobs:
       - name: Pack build
         run: tar -czf vision-site-dist.tar.gz -C dist .
 
+      - name: Pack backend
+        run: tar -czf vision-backend.tar.gz -C backend .
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vision-site-dist
-          path: vision-site-dist.tar.gz
+          name: vision-release
+          path: |
+            vision-site-dist.tar.gz
+            vision-backend.tar.gz
           if-no-files-found: error
 
   deploy:
@@ -56,7 +61,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: vision-site-dist
+          name: vision-release
 
       - name: Prepare SSH
         run: |
@@ -76,24 +81,29 @@ jobs:
         run: |
           set -euo pipefail
           SERVER_PORT="${SERVER_PORT:-22}"
-          ARCHIVE="/tmp/vision-site-${GITHUB_SHA}.tar.gz"
-          scp -i ~/.ssh/deploy_key -P "$SERVER_PORT" vision-site-dist.tar.gz "$SERVER_USER@$SERVER_HOST:$ARCHIVE"
+          FRONTEND_ARCHIVE="/tmp/vision-site-${GITHUB_SHA}.tar.gz"
+          BACKEND_ARCHIVE="/tmp/vision-backend-${GITHUB_SHA}.tar.gz"
+          scp -i ~/.ssh/deploy_key -P "$SERVER_PORT" vision-site-dist.tar.gz "$SERVER_USER@$SERVER_HOST:$FRONTEND_ARCHIVE"
+          scp -i ~/.ssh/deploy_key -P "$SERVER_PORT" vision-backend.tar.gz "$SERVER_USER@$SERVER_HOST:$BACKEND_ARCHIVE"
 
       - name: Activate release
         run: |
           set -euo pipefail
           SERVER_PORT="${SERVER_PORT:-22}"
-          ARCHIVE="/tmp/vision-site-${GITHUB_SHA}.tar.gz"
+          FRONTEND_ARCHIVE="/tmp/vision-site-${GITHUB_SHA}.tar.gz"
+          BACKEND_ARCHIVE="/tmp/vision-backend-${GITHUB_SHA}.tar.gz"
           DEPLOY_PATH="${SERVER_DEPLOY_PATH:-/root/site/vision-site}"
           WEB_ROOT="${SERVER_WEB_ROOT:-/var/www/visionoftrad_usr/data/www/visionoftrading.com}"
           WEB_OWNER="${SERVER_WEB_OWNER:-visionoftrad_usr:visionoftrad_usr}"
 
           ssh -i ~/.ssh/deploy_key -p "$SERVER_PORT" "$SERVER_USER@$SERVER_HOST" \
-            "ARCHIVE='$ARCHIVE' DEPLOY_PATH='$DEPLOY_PATH' WEB_ROOT='$WEB_ROOT' WEB_OWNER='$WEB_OWNER' SHA='$GITHUB_SHA' bash -se" <<'SCRIPT'
+            "FRONTEND_ARCHIVE='$FRONTEND_ARCHIVE' BACKEND_ARCHIVE='$BACKEND_ARCHIVE' DEPLOY_PATH='$DEPLOY_PATH' WEB_ROOT='$WEB_ROOT' WEB_OWNER='$WEB_OWNER' SHA='$GITHUB_SHA' bash -se" <<'SCRIPT'
           set -euo pipefail
 
           RELEASE_DIR="$DEPLOY_PATH/releases/$SHA"
           BACKUP_DIR="$DEPLOY_PATH/backups"
+          BACKEND_DIR="$DEPLOY_PATH/backend"
+          BACKEND_RELEASE_DIR="$BACKEND_DIR/releases/$SHA"
 
           case "$WEB_ROOT" in
             /var/www/*) ;;
@@ -106,14 +116,46 @@ jobs:
           test -d "$WEB_ROOT"
           mkdir -p "$RELEASE_DIR"
           mkdir -p "$BACKUP_DIR"
+          mkdir -p "$BACKEND_RELEASE_DIR"
 
           tar -czf "$BACKUP_DIR/web-root-before-$SHA.tar.gz" -C "$WEB_ROOT" .
-          tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
+          tar -xzf "$FRONTEND_ARCHIVE" -C "$RELEASE_DIR"
           ln -sfn "$RELEASE_DIR" "$DEPLOY_PATH/current"
 
           find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          tar -xzf "$ARCHIVE" -C "$WEB_ROOT"
+          tar -xzf "$FRONTEND_ARCHIVE" -C "$WEB_ROOT"
           chown -R "$WEB_OWNER" "$WEB_ROOT"
 
-          rm -f "$ARCHIVE"
+          tar -xzf "$BACKEND_ARCHIVE" -C "$BACKEND_RELEASE_DIR"
+          python3 -m venv "$BACKEND_DIR/venv"
+          "$BACKEND_DIR/venv/bin/pip" install --upgrade pip
+          "$BACKEND_DIR/venv/bin/pip" install -r "$BACKEND_RELEASE_DIR/requirements.txt"
+          ln -sfn "$BACKEND_RELEASE_DIR" "$BACKEND_DIR/current"
+
+          if [ -f "$BACKEND_DIR/.env" ]; then
+            cat > /etc/systemd/system/vision-site-api.service <<SERVICE
+          [Unit]
+          Description=Vision of Trading FastAPI backend
+          After=network.target mysql.service
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=$BACKEND_DIR/current
+          EnvironmentFile=$BACKEND_DIR/.env
+          ExecStart=$BACKEND_DIR/venv/bin/uvicorn app:app --host 127.0.0.1 --port 3001
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+            systemctl daemon-reload
+            systemctl enable vision-site-api
+            systemctl restart vision-site-api
+          else
+            echo "Backend .env is missing at $BACKEND_DIR/.env; service restart skipped."
+          fi
+
+          rm -f "$FRONTEND_ARCHIVE" "$BACKEND_ARCHIVE"
           SCRIPT

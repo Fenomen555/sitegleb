@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { fetchPublicNews } from './api/client'
 import { SiteFooter } from './components/SiteFooter'
 import { SiteHeader } from './components/SiteHeader'
-import { newsItems } from './data/newsData'
+import { newsItems as fallbackNewsItems } from './data/newsData'
 import { useRouter } from './hooks/useRouter'
 import { useScrollReveal } from './hooks/useScrollReveal'
 import { defaultLanguage, translations } from './i18n/translations'
+import { AdminPage } from './pages/admin/AdminPage'
 import { AboutPage } from './pages/AboutPage'
 import { HomePage } from './pages/HomePage'
 import { InstructionPage } from './pages/InstructionPage'
@@ -49,6 +51,9 @@ function resolveRoute(path) {
   if (cleanPath === '/recovery') {
     return { page: 'recovery' }
   }
+  if (cleanPath === '/admin2026o') {
+    return { page: 'admin' }
+  }
   return { page: 'not-found' }
 }
 
@@ -77,6 +82,9 @@ function buildPageContent(route, props) {
   if (route.page === 'recovery') {
     return <RecoveryPage {...props} />
   }
+  if (route.page === 'admin') {
+    return <AdminPage {...props} />
+  }
   return <NotFoundPage {...props} />
 }
 
@@ -86,10 +94,12 @@ function App() {
     const saved = localStorage.getItem('vision-lang')
     return saved === 'ru' || saved === 'en' ? saved : defaultLanguage
   })
+  const [newsItems, setNewsItems] = useState(fallbackNewsItems)
 
   const route = useMemo(() => resolveRoute(path), [path])
   const t = translations[language] ?? translations[defaultLanguage]
   const authLikePage = route.page === 'login' || route.page === 'register' || route.page === 'recovery'
+  const adminPage = route.page === 'admin'
 
   useScrollReveal(path, language)
 
@@ -101,6 +111,26 @@ function App() {
     document.title = t.meta.title
   }, [t.meta.title])
 
+  useEffect(() => {
+    let mounted = true
+
+    fetchPublicNews()
+      .then((items) => {
+        if (mounted && Array.isArray(items) && items.length > 0) {
+          setNewsItems(items)
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setNewsItems(fallbackNewsItems)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const pageProps = {
     t,
     language,
@@ -110,16 +140,18 @@ function App() {
 
   return (
     <div className={`app-shell route-${route.page}`}>
-      <SiteHeader
-        t={t}
-        currentPath={path}
-        onNavigate={navigate}
-        language={language}
-        onLanguageChange={setLanguage}
-        compact={authLikePage}
-      />
+      {!adminPage && (
+        <SiteHeader
+          t={t}
+          currentPath={path}
+          onNavigate={navigate}
+          language={language}
+          onLanguageChange={setLanguage}
+          compact={authLikePage}
+        />
+      )}
       <main className={`page-slot route-${route.page}`}>{buildPageContent(route, pageProps)}</main>
-      <SiteFooter t={t} onNavigate={navigate} compact={authLikePage} />
+      {!adminPage && <SiteFooter t={t} onNavigate={navigate} compact={authLikePage} />}
     </div>
   )
 }

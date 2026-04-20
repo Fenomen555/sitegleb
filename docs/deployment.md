@@ -17,6 +17,22 @@ The matching public deploy key must be present on the server in:
 /root/.ssh/authorized_keys
 ```
 
+## Backend environment
+
+The backend runs from:
+
+```text
+/root/site/vision-site/backend/current
+```
+
+Runtime secrets are stored only on the server:
+
+```text
+/root/site/vision-site/backend/.env
+```
+
+This file should contain MySQL credentials, admin bootstrap credentials, and `SESSION_SECRET`.
+
 ## Recommended GitHub variables
 
 - `DEPLOY_ENABLED` - set to `true` when SSH access is ready
@@ -48,4 +64,16 @@ Then it refreshes the Nginx web root:
 
 ```text
 /var/www/visionoftrad_usr/data/www/visionoftrading.com
+```
+
+The workflow also deploys the FastAPI backend, installs Python requirements into:
+
+```text
+/root/site/vision-site/backend/venv
+```
+
+Then it restarts:
+
+```text
+vision-site-api.service
 ```

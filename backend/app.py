@@ -1,0 +1,580 @@
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
+
+import pymysql
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
+from pymysql.cursors import DictCursor
+
+
+SESSION_COOKIE = "vision_admin_session"
+SESSION_DAYS = 14
+PASSWORD_ITERATIONS = 260_000
+
+
+app = FastAPI(title="Vision API")
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def db_config() -> dict[str, Any]:
+    return {
+        "host": os.getenv("DB_HOST", "127.0.0.1"),
+        "port": int(os.getenv("DB_PORT", "3306")),
+        "user": os.getenv("DB_USER", "visionoftrad"),
+        "password": os.getenv("DB_PASSWORD", ""),
+        "database": os.getenv("DB_NAME", "visionoftrad"),
+        "charset": "utf8mb4",
+        "cursorclass": DictCursor,
+        "autocommit": True,
+    }
+
+
+def get_connection():
+    return pymysql.connect(**db_config())
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def hash_password(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS)
+    salt_b64 = base64.urlsafe_b64encode(salt).decode("ascii")
+    digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii")
+    return f"pbkdf2_sha256${PASSWORD_ITERATIONS}${salt_b64}${digest_b64}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, iterations, salt_b64, digest_b64 = stored_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        salt = base64.urlsafe_b64decode(salt_b64.encode("ascii"))
+        expected = base64.urlsafe_b64decode(digest_b64.encode("ascii"))
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iterations))
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def token_hash(token: str) -> str:
+    secret = os.getenv("SESSION_SECRET", "")
+    if not secret:
+        raise RuntimeError("SESSION_SECRET is required")
+    return hmac.new(secret.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def json_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return []
+
+
+def serialize_news(row: dict[str, Any]) -> dict[str, Any]:
+    published_at = row.get("published_at")
+    if isinstance(published_at, (datetime, date)):
+        published_at = published_at.isoformat()
+
+    return {
+        "id": row["id"],
+        "slug": row["slug"],
+        "date": published_at,
+        "category": row["category"],
+        "isPublished": bool(row["is_published"]),
+        "ru": {
+            "title": row["ru_title"],
+            "excerpt": row["ru_excerpt"],
+            "content": json_list(row["ru_content"]),
+        },
+        "en": {
+            "title": row["en_title"],
+            "excerpt": row["en_excerpt"],
+            "content": json_list(row["en_content"]),
+        },
+    }
+
+
+def serialize_admin(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "login": row["login"],
+        "role": row["role"],
+        "isActive": bool(row["is_active"]),
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+        "lastLoginAt": row["last_login_at"].isoformat() if row.get("last_login_at") else None,
+    }
+
+
+def create_tables() -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admins (
+                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  login VARCHAR(80) NOT NULL UNIQUE,
+                  password_hash VARCHAR(255) NOT NULL,
+                  role VARCHAR(32) NOT NULL DEFAULT 'owner',
+                  is_active TINYINT(1) NOT NULL DEFAULT 1,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  last_login_at TIMESTAMP NULL DEFAULT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  admin_id BIGINT UNSIGNED NOT NULL,
+                  token_hash CHAR(64) NOT NULL UNIQUE,
+                  expires_at DATETIME NOT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  last_seen_at TIMESTAMP NULL DEFAULT NULL,
+                  INDEX idx_admin_sessions_admin_id (admin_id),
+                  INDEX idx_admin_sessions_expires_at (expires_at),
+                  CONSTRAINT fk_admin_sessions_admin
+                    FOREIGN KEY (admin_id) REFERENCES admins(id)
+                    ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS news (
+                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  slug VARCHAR(160) NOT NULL UNIQUE,
+                  category VARCHAR(60) NOT NULL DEFAULT 'team',
+                  published_at DATE NOT NULL,
+                  is_published TINYINT(1) NOT NULL DEFAULT 1,
+                  ru_title VARCHAR(255) NOT NULL,
+                  ru_excerpt TEXT NOT NULL,
+                  ru_content JSON NOT NULL,
+                  en_title VARCHAR(255) NOT NULL,
+                  en_excerpt TEXT NOT NULL,
+                  en_content JSON NOT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_news_published_at (published_at),
+                  INDEX idx_news_is_published (is_published)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+
+
+def bootstrap_admin() -> None:
+    login = os.getenv("ADMIN_BOOTSTRAP_LOGIN")
+    password = os.getenv("ADMIN_BOOTSTRAP_PASSWORD")
+    if not login or not password:
+        return
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM admins WHERE login = %s", (login,))
+            if cursor.fetchone():
+                return
+            cursor.execute(
+                "INSERT INTO admins (login, password_hash, role, is_active) VALUES (%s, %s, 'owner', 1)",
+                (login, hash_password(password)),
+            )
+
+
+def seed_news_if_empty() -> None:
+    default_news = [
+        {
+            "slug": "risk-management-basics",
+            "date": "2026-03-15",
+            "category": "education",
+            "ru": {
+                "title": "Базовый риск-менеджмент: правило 1-2%",
+                "excerpt": "Почему ограничение риска на сделку защищает депозит и помогает пережить серию убытков.",
+                "content": [
+                    "Первое, что мы внедряем в команде - лимит риска на одну сделку. Обычно это 1-2% от рабочего капитала.",
+                    "Такой подход позволяет сохранять контроль, даже если рынок идет не по вашему сценарию несколько сделок подряд.",
+                    "Перед входом в сделку фиксируйте точку отмены сценария и допустимый убыток. Дисциплина в этом вопросе важнее идеальной точки входа.",
+                ],
+            },
+            "en": {
+                "title": "Risk management basics: the 1-2% rule",
+                "excerpt": "How position risk limits protect your balance and keep you stable through losing streaks.",
+                "content": [
+                    "The first habit we build in the team is a strict per-trade risk cap, usually around 1-2% of your working balance.",
+                    "This protects your capital when the market does not follow your expected scenario for several trades in a row.",
+                    "Define invalidation level and max acceptable loss before entry. In real trading, discipline beats random precision.",
+                ],
+            },
+        },
+        {
+            "slug": "team-daily-routine",
+            "date": "2026-03-12",
+            "category": "team",
+            "ru": {
+                "title": "Ежедневный ритм команды: от разбора до результата",
+                "excerpt": "Как устроен типичный торговый день внутри нашей группы и почему это ускоряет прогресс.",
+                "content": [
+                    "Рабочий день начинается с короткого премаркета: отмечаем ключевые уровни, сценарии и активы в фокусе.",
+                    "Далее идут сессии с комментариями наставников, где участники видят не только входы, но и логику управления позицией.",
+                    "В конце дня проводим разбор: что сработало, где были ошибки дисциплины и как улучшить исполнение на следующей сессии.",
+                ],
+            },
+            "en": {
+                "title": "Team daily routine: from review to execution",
+                "excerpt": "How a typical day is structured inside our group and why this format speeds up growth.",
+                "content": [
+                    "Our day starts with a compact pre-market review: key levels, scenarios, and priority assets for the session.",
+                    "During live sessions, mentors explain not only entries but also position management decisions in real time.",
+                    "At the end of day we review outcomes: what worked, where discipline slipped, and how to improve next session.",
+                ],
+            },
+        },
+        {
+            "slug": "entry-checklist-update",
+            "date": "2026-03-08",
+            "category": "strategy",
+            "ru": {
+                "title": "Обновление чек-листа входа: меньше импульсивных сделок",
+                "excerpt": "Мы добавили новый фильтр волатильности и подтвердили снижение числа эмоциональных входов.",
+                "content": [
+                    "В новой версии чек-листа перед входом обязательно подтверждаем волатильность и текущую структуру свечей.",
+                    "Если рынок дергается без четкой структуры, сделка переносится. Пропуск слабого сигнала - это тоже результат.",
+                    "На тестовом периоде обновленный чек-лист показал более стабильную статистику по качеству входов.",
+                ],
+            },
+            "en": {
+                "title": "Entry checklist update: fewer impulsive trades",
+                "excerpt": "We introduced a volatility filter and confirmed a drop in emotional entries.",
+                "content": [
+                    "In the updated checklist, volatility and current candle structure must be confirmed before entry.",
+                    "If the market is too noisy and structure is unclear, we skip the setup. Skipping weak setups is a win.",
+                    "During test weeks, the updated checklist improved consistency and overall entry quality.",
+                ],
+            },
+        },
+    ]
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS total FROM news")
+            if int(cursor.fetchone()["total"]) > 0:
+                return
+            for item in default_news:
+                cursor.execute(
+                    """
+                    INSERT INTO news
+                      (slug, category, published_at, is_published, ru_title, ru_excerpt, ru_content, en_title, en_excerpt, en_content)
+                    VALUES
+                      (%s, %s, %s, 1, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        item["slug"],
+                        item["category"],
+                        item["date"],
+                        item["ru"]["title"],
+                        item["ru"]["excerpt"],
+                        json.dumps(item["ru"]["content"], ensure_ascii=False),
+                        item["en"]["title"],
+                        item["en"]["excerpt"],
+                        json.dumps(item["en"]["content"], ensure_ascii=False),
+                    ),
+                )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    create_tables()
+    bootstrap_admin()
+    seed_news_if_empty()
+
+
+class LocalizedNews(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    excerpt: str = Field(min_length=2)
+    content: list[str] = Field(min_length=1)
+
+
+class NewsPayload(BaseModel):
+    slug: str = Field(min_length=2, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    date: date
+    category: str = Field(min_length=2, max_length=60)
+    isPublished: bool = True
+    ru: LocalizedNews
+    en: LocalizedNews
+
+
+class LoginPayload(BaseModel):
+    login: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=6, max_length=256)
+
+
+class AdminCreatePayload(BaseModel):
+    login: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=256)
+    role: str = Field(default="admin", max_length=32)
+
+
+class AdminUpdatePayload(BaseModel):
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    isActive: bool | None = None
+    role: str | None = Field(default=None, max_length=32)
+
+
+def require_admin(request: Request) -> dict[str, Any]:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Auth required")
+
+    digest = token_hash(token)
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT a.*
+                FROM admin_sessions s
+                JOIN admins a ON a.id = s.admin_id
+                WHERE s.token_hash = %s AND s.expires_at > UTC_TIMESTAMP() AND a.is_active = 1
+                """,
+                (digest,),
+            )
+            admin = cursor.fetchone()
+            if not admin:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Auth required")
+            cursor.execute("UPDATE admin_sessions SET last_seen_at = UTC_TIMESTAMP() WHERE token_hash = %s", (digest,))
+            return admin
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/api/news")
+def get_public_news() -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM news
+                WHERE is_published = 1
+                ORDER BY published_at DESC, id DESC
+                """
+            )
+            return [serialize_news(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/admin/login")
+def login(payload: LoginPayload, response: Response) -> dict[str, Any]:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM admins WHERE login = %s AND is_active = 1", (payload.login,))
+            admin = cursor.fetchone()
+            if not admin or not verify_password(payload.password, admin["password_hash"]):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+            token = secrets.token_urlsafe(32)
+            expires_at = now_utc() + timedelta(days=SESSION_DAYS)
+            cursor.execute(
+                "INSERT INTO admin_sessions (admin_id, token_hash, expires_at) VALUES (%s, %s, %s)",
+                (admin["id"], token_hash(token), expires_at.replace(tzinfo=None)),
+            )
+            cursor.execute("UPDATE admins SET last_login_at = UTC_TIMESTAMP() WHERE id = %s", (admin["id"],))
+
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        secure=env_bool("COOKIE_SECURE", True),
+        samesite="lax",
+        max_age=SESSION_DAYS * 24 * 60 * 60,
+        path="/",
+    )
+    return {"admin": serialize_admin(admin)}
+
+
+@app.post("/api/admin/logout")
+def logout(request: Request, response: Response) -> dict[str, bool]:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM admin_sessions WHERE token_hash = %s", (token_hash(token),))
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/admin/me")
+def me(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    return {"admin": serialize_admin(admin)}
+
+
+@app.get("/api/admin/news")
+def get_admin_news(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM news ORDER BY published_at DESC, id DESC")
+            return [serialize_news(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/admin/news", status_code=status.HTTP_201_CREATED)
+def create_news(payload: NewsPayload, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    del admin
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO news
+                      (slug, category, published_at, is_published, ru_title, ru_excerpt, ru_content, en_title, en_excerpt, en_content)
+                    VALUES
+                      (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        payload.slug,
+                        payload.category,
+                        payload.date,
+                        int(payload.isPublished),
+                        payload.ru.title,
+                        payload.ru.excerpt,
+                        json.dumps(payload.ru.content, ensure_ascii=False),
+                        payload.en.title,
+                        payload.en.excerpt,
+                        json.dumps(payload.en.content, ensure_ascii=False),
+                    ),
+                )
+            except pymysql.err.IntegrityError:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists") from None
+            cursor.execute("SELECT * FROM news WHERE id = LAST_INSERT_ID()")
+            return serialize_news(cursor.fetchone())
+
+
+@app.put("/api/admin/news/{news_id}")
+def update_news(news_id: int, payload: NewsPayload, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    del admin
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute(
+                    """
+                    UPDATE news
+                    SET slug = %s,
+                        category = %s,
+                        published_at = %s,
+                        is_published = %s,
+                        ru_title = %s,
+                        ru_excerpt = %s,
+                        ru_content = %s,
+                        en_title = %s,
+                        en_excerpt = %s,
+                        en_content = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        payload.slug,
+                        payload.category,
+                        payload.date,
+                        int(payload.isPublished),
+                        payload.ru.title,
+                        payload.ru.excerpt,
+                        json.dumps(payload.ru.content, ensure_ascii=False),
+                        payload.en.title,
+                        payload.en.excerpt,
+                        json.dumps(payload.en.content, ensure_ascii=False),
+                        news_id,
+                    ),
+                )
+            except pymysql.err.IntegrityError:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists") from None
+            cursor.execute("SELECT * FROM news WHERE id = %s", (news_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News item not found")
+            return serialize_news(row)
+
+
+@app.delete("/api/admin/news/{news_id}")
+def delete_news(news_id: int, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, bool]:
+    del admin
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM news WHERE id = %s", (news_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="News item not found")
+    return {"ok": True}
+
+
+@app.get("/api/admin/admins")
+def get_admins(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    del admin
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM admins ORDER BY id ASC")
+            return [serialize_admin(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/admin/admins", status_code=status.HTTP_201_CREATED)
+def create_admin(payload: AdminCreatePayload, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    del admin
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute(
+                    "INSERT INTO admins (login, password_hash, role, is_active) VALUES (%s, %s, %s, 1)",
+                    (payload.login, hash_password(payload.password), payload.role),
+                )
+            except pymysql.err.IntegrityError:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Login already exists") from None
+            cursor.execute("SELECT * FROM admins WHERE id = LAST_INSERT_ID()")
+            return serialize_admin(cursor.fetchone())
+
+
+@app.patch("/api/admin/admins/{admin_id}")
+def update_admin(
+    admin_id: int,
+    payload: AdminUpdatePayload,
+    current_admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    updates: list[str] = []
+    values: list[Any] = []
+
+    if payload.password:
+        updates.append("password_hash = %s")
+        values.append(hash_password(payload.password))
+    if payload.isActive is not None:
+        if admin_id == current_admin["id"] and payload.isActive is False:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate yourself")
+        updates.append("is_active = %s")
+        values.append(int(payload.isActive))
+    if payload.role:
+        updates.append("role = %s")
+        values.append(payload.role)
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update")
+
+    values.append(admin_id)
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"UPDATE admins SET {', '.join(updates)} WHERE id = %s", values)
+            cursor.execute("SELECT * FROM admins WHERE id = %s", (admin_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
+            return serialize_admin(row)
