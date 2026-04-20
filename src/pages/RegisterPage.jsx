@@ -24,9 +24,13 @@ export function RegisterPage({ t, onNavigate }) {
     const promo = String(form.get('promo') || '').trim()
 
     try {
-      await sendRegistrationMail(email, promo || null)
+      const result = await sendRegistrationMail(email, promo || null)
       setError('')
-      setStatus('Письмо по регистрации отправлено. Проверьте почту.')
+      setStatus(
+        result?.sent === false
+          ? 'Заявка принята. Письмо регистрации сейчас выключено администратором.'
+          : 'Письмо по регистрации отправлено. Проверьте почту.',
+      )
       event.currentTarget.reset()
     } catch (err) {
       setStatus('')

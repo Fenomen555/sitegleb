@@ -3,12 +3,13 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import smtplib
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
-from html import escape
+from html import escape, unescape
 from typing import Any
 
 import pymysql
@@ -20,6 +21,7 @@ from pymysql.cursors import DictCursor
 SESSION_COOKIE = "vision_admin_session"
 SESSION_DAYS = 14
 PASSWORD_ITERATIONS = 260_000
+MAIL_TEMPLATE_KINDS = {"registration", "recovery"}
 
 
 app = FastAPI(title="Vision API")
@@ -135,6 +137,66 @@ def serialize_admin(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def default_mail_templates() -> dict[str, dict[str, str]]:
+    return {
+        "registration": {
+            "subject": "Vision: регистрация получена",
+            "html": """
+<div style="margin:0;background:#eef7ff;padding:28px;font-family:Arial,sans-serif;color:#102d4d">
+  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #cfe1f1;border-radius:24px;padding:28px">
+    <p style="margin:0 0 12px;color:#2477c7;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Vision</p>
+    <h1 style="margin:0 0 14px;font-size:28px;line-height:1.12;color:#0f2f51">Регистрация получена</h1>
+    <p style="margin:0 0 14px;line-height:1.65">Мы получили заявку на регистрацию для <b>{{email}}</b>.</p>
+    <p style="margin:0 0 14px;line-height:1.65">Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.</p>
+    <p style="margin:0 0 18px;line-height:1.65;color:#43698f">Промокод: <b>{{promo}}</b></p>
+    <div style="height:1px;background:#d9e8f5;margin:20px 0"></div>
+    <p style="margin:0;color:#6383a1;font-size:13px;line-height:1.55">Если вы не отправляли заявку, просто проигнорируйте это письмо.</p>
+  </div>
+</div>
+""".strip(),
+            "text": (
+                "Здравствуйте!\n\n"
+                "Мы получили заявку на регистрацию для {{email}}.\n"
+                "Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.\n"
+                "Промокод: {{promo}}\n\n"
+                "Если вы не отправляли заявку, просто проигнорируйте это письмо."
+            ),
+        },
+        "recovery": {
+            "subject": "Vision: восстановление пароля",
+            "html": """
+<div style="margin:0;background:#eef7ff;padding:28px;font-family:Arial,sans-serif;color:#102d4d">
+  <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #cfe1f1;border-radius:24px;padding:28px">
+    <p style="margin:0 0 12px;color:#2477c7;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Vision</p>
+    <h1 style="margin:0 0 14px;font-size:28px;line-height:1.12;color:#0f2f51">Восстановление пароля</h1>
+    <p style="margin:0 0 14px;line-height:1.65">Мы получили запрос на восстановление пароля для <b>{{email}}</b>.</p>
+    <p style="margin:0 0 14px;line-height:1.65">На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.</p>
+    <div style="height:1px;background:#d9e8f5;margin:20px 0"></div>
+    <p style="margin:0;color:#6383a1;font-size:13px;line-height:1.55">Если вы не запрашивали восстановление, просто проигнорируйте это письмо.</p>
+  </div>
+</div>
+""".strip(),
+            "text": (
+                "Здравствуйте!\n\n"
+                "Мы получили запрос на восстановление пароля для {{email}}.\n"
+                "На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.\n\n"
+                "Если вы не запрашивали восстановление, просто проигнорируйте это письмо."
+            ),
+        },
+    }
+
+
+def serialize_mail_template(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": row["kind"],
+        "isEnabled": bool(row["is_enabled"]),
+        "subject": row["subject"],
+        "htmlBody": row["html_body"],
+        "textBody": row.get("text_body") or "",
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,
+    }
+
+
 def smtp_from_header() -> str:
     value = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", ""))
     name, address = parseaddr(value)
@@ -149,6 +211,39 @@ def normalize_email(value: str) -> str:
     if address != email or "@" not in address or "." not in address.rsplit("@", 1)[-1]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid email")
     return address
+
+
+def render_mail_template(value: str, variables: dict[str, str], html: bool = False) -> str:
+    rendered = value
+    for key, raw_value in variables.items():
+        replacement = escape(raw_value) if html else raw_value
+        rendered = rendered.replace(f"{{{{{key}}}}}", replacement)
+    return rendered
+
+
+def html_to_text(value: str) -> str:
+    without_styles = re.sub(r"<(script|style).*?</\1>", "", value, flags=re.IGNORECASE | re.DOTALL)
+    with_breaks = re.sub(r"</(p|div|h[1-6]|li|tr)>", "\n", without_styles, flags=re.IGNORECASE)
+    no_tags = re.sub(r"<[^>]+>", "", with_breaks)
+    lines = [line.strip() for line in unescape(no_tags).splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
+def get_mail_template(kind: str) -> dict[str, Any]:
+    if kind not in MAIL_TEMPLATE_KINDS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mail template not found")
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM mail_templates WHERE kind = %s", (kind,))
+            row = cursor.fetchone()
+            if not row:
+                seed_mail_templates()
+                cursor.execute("SELECT * FROM mail_templates WHERE kind = %s", (kind,))
+                row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mail template not found")
+            return row
 
 
 def send_email(to_email: str, subject: str, text: str, html: str | None = None) -> None:
@@ -269,6 +364,19 @@ def create_tables() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mail_templates (
+                  kind VARCHAR(40) NOT NULL PRIMARY KEY,
+                  is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                  subject VARCHAR(255) NOT NULL,
+                  html_body MEDIUMTEXT NOT NULL,
+                  text_body MEDIUMTEXT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
 
 
 def bootstrap_admin() -> None:
@@ -286,6 +394,20 @@ def bootstrap_admin() -> None:
                 "INSERT INTO admins (login, password_hash, role, is_active) VALUES (%s, %s, 'owner', 1)",
                 (login, hash_password(password)),
             )
+
+
+def seed_mail_templates() -> None:
+    templates = default_mail_templates()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            for kind, template in templates.items():
+                cursor.execute(
+                    """
+                    INSERT IGNORE INTO mail_templates (kind, is_enabled, subject, html_body, text_body)
+                    VALUES (%s, 1, %s, %s, %s)
+                    """,
+                    (kind, template["subject"], template["html"], template["text"]),
+                )
 
 
 def seed_news_if_empty() -> None:
@@ -392,6 +514,7 @@ def seed_news_if_empty() -> None:
 def startup() -> None:
     create_tables()
     bootstrap_admin()
+    seed_mail_templates()
     seed_news_if_empty()
 
 
@@ -422,6 +545,13 @@ class RegistrationMailPayload(BaseModel):
 
 class RecoveryMailPayload(BaseModel):
     email: str = Field(min_length=5, max_length=255)
+
+
+class MailTemplatePayload(BaseModel):
+    isEnabled: bool
+    subject: str = Field(min_length=2, max_length=255)
+    htmlBody: str = Field(min_length=2)
+    textBody: str | None = Field(default=None, max_length=20000)
 
 
 class AdminCreatePayload(BaseModel):
@@ -483,60 +613,54 @@ def get_public_news() -> list[dict[str, Any]]:
 @app.post("/api/auth/register-mail")
 def send_registration_mail(payload: RegistrationMailPayload) -> dict[str, bool]:
     email = normalize_email(payload.email)
-    subject = "Vision: регистрация получена"
-    text = (
-        "Здравствуйте!\n\n"
-        "Мы получили вашу заявку на регистрацию в Vision.\n"
-        "Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.\n\n"
-        "Если вы не отправляли заявку, просто проигнорируйте это письмо."
-    )
+    template = get_mail_template("registration")
+    if not bool(template["is_enabled"]):
+        log_mail_event("registration", email, "skipped", "Registration email template is disabled")
+        return {"ok": True, "sent": False}
+
     promo = (payload.promo or "").strip()
-    if promo:
-        text += f"\n\nПромокод из заявки: {promo}"
-    promo_html = f"<p><b>Промокод:</b> {escape(promo)}</p>" if promo else ""
-    html = f"""
-    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102d4d">
-      <h2>Регистрация получена</h2>
-      <p>Мы получили вашу заявку на регистрацию в <b>Vision</b>.</p>
-      <p>Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.</p>
-      {promo_html}
-      <p style="color:#55779c">Если вы не отправляли заявку, просто проигнорируйте это письмо.</p>
-    </div>
-    """
+    variables = {
+        "email": email,
+        "promo": promo or "не указан",
+        "site_url": "https://visionoftrading.com",
+    }
+    subject = render_mail_template(template["subject"], variables)
+    html = render_mail_template(template["html_body"], variables, html=True)
+    text_source = template.get("text_body") or html_to_text(template["html_body"])
+    text = render_mail_template(text_source, variables)
     try:
         send_email(email, subject, text, html)
     except Exception as exc:
         log_mail_event("registration", email, "failed", str(exc)[:1000])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
     log_mail_event("registration", email, "sent")
-    return {"ok": True}
+    return {"ok": True, "sent": True}
 
 
 @app.post("/api/auth/recovery-mail")
 def send_recovery_mail(payload: RecoveryMailPayload) -> dict[str, bool]:
     email = normalize_email(payload.email)
-    subject = "Vision: восстановление пароля"
-    text = (
-        "Здравствуйте!\n\n"
-        "Мы получили запрос на восстановление пароля для аккаунта Vision.\n"
-        "На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.\n\n"
-        "Если вы не запрашивали восстановление, просто проигнорируйте это письмо."
-    )
-    html = """
-    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102d4d">
-      <h2>Восстановление пароля</h2>
-      <p>Мы получили запрос на восстановление пароля для аккаунта <b>Vision</b>.</p>
-      <p>На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.</p>
-      <p style="color:#55779c">Если вы не запрашивали восстановление, просто проигнорируйте это письмо.</p>
-    </div>
-    """
+    template = get_mail_template("recovery")
+    if not bool(template["is_enabled"]):
+        log_mail_event("recovery", email, "skipped", "Recovery email template is disabled")
+        return {"ok": True, "sent": False}
+
+    variables = {
+        "email": email,
+        "promo": "",
+        "site_url": "https://visionoftrading.com",
+    }
+    subject = render_mail_template(template["subject"], variables)
+    html = render_mail_template(template["html_body"], variables, html=True)
+    text_source = template.get("text_body") or html_to_text(template["html_body"])
+    text = render_mail_template(text_source, variables)
     try:
         send_email(email, subject, text, html)
     except Exception as exc:
         log_mail_event("recovery", email, "failed", str(exc)[:1000])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Email was not sent") from None
     log_mail_event("recovery", email, "sent")
-    return {"ok": True}
+    return {"ok": True, "sent": True}
 
 
 @app.post("/api/admin/login")
@@ -582,6 +706,51 @@ def logout(request: Request, response: Response) -> dict[str, bool]:
 @app.get("/api/admin/me")
 def me(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     return {"admin": serialize_admin(admin)}
+
+
+@app.get("/api/admin/mail-templates")
+def get_admin_mail_templates(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    del admin
+    seed_mail_templates()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM mail_templates
+                ORDER BY FIELD(kind, 'registration', 'recovery'), kind
+                """
+            )
+            return [serialize_mail_template(row) for row in cursor.fetchall()]
+
+
+@app.put("/api/admin/mail-templates/{kind}")
+def update_admin_mail_template(
+    kind: str,
+    payload: MailTemplatePayload,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    if kind not in MAIL_TEMPLATE_KINDS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mail template not found")
+
+    text_body = (payload.textBody or "").strip() or None
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mail_templates (kind, is_enabled, subject, html_body, text_body)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                  is_enabled = VALUES(is_enabled),
+                  subject = VALUES(subject),
+                  html_body = VALUES(html_body),
+                  text_body = VALUES(text_body)
+                """,
+                (kind, int(payload.isEnabled), payload.subject.strip(), payload.htmlBody, text_body),
+            )
+            cursor.execute("SELECT * FROM mail_templates WHERE kind = %s", (kind,))
+            return serialize_mail_template(cursor.fetchone())
 
 
 @app.get("/api/admin/news")

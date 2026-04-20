@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createAdmin,
   createNewsItem,
   deleteNewsItem,
   fetchAdminNews,
   fetchAdmins,
+  fetchMailTemplates,
   getAdminMe,
   loginAdmin,
   logoutAdmin,
   updateAdmin,
+  updateMailTemplate,
   updateNewsItem,
 } from '../../api/client'
 import './AdminPage.css'
@@ -25,6 +27,35 @@ const emptyNewsForm = {
   enTitle: '',
   enExcerpt: '',
   enContent: '',
+}
+
+const emptyMailForm = {
+  kind: 'registration',
+  isEnabled: true,
+  subject: '',
+  htmlBody: '',
+  textBody: '',
+}
+
+const mailTabs = [
+  {
+    kind: 'registration',
+    title: 'Регистрация',
+    description: 'Письмо, которое уходит после заявки на регистрацию.',
+    variables: ['{{email}}', '{{promo}}', '{{site_url}}'],
+  },
+  {
+    kind: 'recovery',
+    title: 'Восстановление пароля',
+    description: 'Письмо для формы восстановления доступа.',
+    variables: ['{{email}}', '{{site_url}}'],
+  },
+]
+
+const previewVariables = {
+  email: 'client@example.com',
+  promo: 'VISION2026',
+  site_url: 'https://visionoftrading.com',
 }
 
 function newsToForm(item) {
@@ -76,6 +107,129 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
+function renderPreviewTemplate(html) {
+  return Object.entries(previewVariables).reduce(
+    (result, [key, value]) => result.replaceAll(`{{${key}}}`, value),
+    html || '',
+  )
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function MailEditor({ value, onChange, onInsertVariable }) {
+  const editorRef = useRef(null)
+
+  useEffect(() => {
+    if (editorRef.current && document.activeElement !== editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || ''
+    }
+  }, [value])
+
+  function runCommand(command, commandValue = null) {
+    editorRef.current?.focus()
+    document.execCommand(command, false, commandValue)
+    onChange(editorRef.current?.innerHTML || '')
+  }
+
+  function insertLink() {
+    const url = window.prompt('Вставьте ссылку')
+    if (!url) {
+      return
+    }
+    runCommand('createLink', url)
+  }
+
+  function insertImage() {
+    const url = window.prompt('Ссылка на изображение')
+    if (!url) {
+      return
+    }
+    runCommand(
+      'insertHTML',
+      `<img src="${escapeHtml(url)}" alt="" style="max-width:100%;border-radius:18px;display:block;margin:16px 0;" />`,
+    )
+  }
+
+  function insertButton() {
+    const url = window.prompt('Ссылка для кнопки', 'https://visionoftrading.com')
+    if (!url) {
+      return
+    }
+    const label = window.prompt('Текст кнопки', 'Открыть сайт') || 'Открыть сайт'
+    runCommand(
+      'insertHTML',
+      `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 18px;border-radius:999px;background:#1f82ff;color:#ffffff;text-decoration:none;font-weight:700;">${escapeHtml(label)}</a></p>`,
+    )
+  }
+
+  function insertVariable(variable) {
+    runCommand('insertText', variable)
+    onInsertVariable?.(variable)
+  }
+
+  return (
+    <div className="mail-editor">
+      <div className="mail-editor-toolbar" aria-label="Панель редактора письма">
+        <button type="button" onClick={() => runCommand('formatBlock', 'h2')}>
+          H2
+        </button>
+        <button type="button" onClick={() => runCommand('formatBlock', 'p')}>
+          P
+        </button>
+        <button type="button" onClick={() => runCommand('bold')}>
+          Жирный
+        </button>
+        <button type="button" onClick={() => runCommand('italic')}>
+          Курсив
+        </button>
+        <button type="button" onClick={() => runCommand('insertUnorderedList')}>
+          Список
+        </button>
+        <button type="button" onClick={() => runCommand('justifyLeft')}>
+          Слева
+        </button>
+        <button type="button" onClick={() => runCommand('justifyCenter')}>
+          Центр
+        </button>
+        <button type="button" onClick={insertLink}>
+          Ссылка
+        </button>
+        <button type="button" onClick={insertButton}>
+          Кнопка
+        </button>
+        <button type="button" onClick={insertImage}>
+          Медиа
+        </button>
+      </div>
+      <div
+        ref={editorRef}
+        className="mail-editor-canvas"
+        contentEditable
+        suppressContentEditableWarning
+        onInput={(event) => onChange(event.currentTarget.innerHTML)}
+      />
+      <div className="mail-variable-row">
+        <span>Переменные:</span>
+        {mailTabs
+          .flatMap((tab) => tab.variables)
+          .filter((variable, index, list) => list.indexOf(variable) === index)
+          .map((variable) => (
+            <button key={variable} type="button" onClick={() => insertVariable(variable)}>
+              {variable}
+            </button>
+          ))}
+      </div>
+    </div>
+  )
+}
+
 export function AdminPage({ onNavigate }) {
   const [checkingSession, setCheckingSession] = useState(true)
   const [admin, setAdmin] = useState(null)
@@ -83,6 +237,9 @@ export function AdminPage({ onNavigate }) {
   const [password, setPassword] = useState('')
   const [news, setNews] = useState([])
   const [admins, setAdmins] = useState([])
+  const [mailTemplates, setMailTemplates] = useState([])
+  const [selectedMailKind, setSelectedMailKind] = useState('registration')
+  const [mailForm, setMailForm] = useState(emptyMailForm)
   const [newsForm, setNewsForm] = useState(emptyNewsForm)
   const [adminForm, setAdminForm] = useState({ login: '', password: '', role: 'admin' })
   const [busy, setBusy] = useState(false)
@@ -94,11 +251,32 @@ export function AdminPage({ onNavigate }) {
     [news],
   )
 
+  const activeMailTab = mailTabs.find((tab) => tab.kind === selectedMailKind) || mailTabs[0]
+
   async function loadAdminData() {
-    const [nextNews, nextAdmins] = await Promise.all([fetchAdminNews(), fetchAdmins()])
+    const [nextNews, nextAdmins, nextMailTemplates] = await Promise.all([
+      fetchAdminNews(),
+      fetchAdmins(),
+      fetchMailTemplates(),
+    ])
     setNews(nextNews)
     setAdmins(nextAdmins)
+    setMailTemplates(nextMailTemplates)
   }
+
+  useEffect(() => {
+    const template = mailTemplates.find((item) => item.kind === selectedMailKind)
+    if (!template) {
+      return
+    }
+    setMailForm({
+      kind: template.kind,
+      isEnabled: template.isEnabled,
+      subject: template.subject || '',
+      htmlBody: template.htmlBody || '',
+      textBody: template.textBody || '',
+    })
+  }, [mailTemplates, selectedMailKind])
 
   useEffect(() => {
     let mounted = true
@@ -151,7 +329,30 @@ export function AdminPage({ onNavigate }) {
     setAdmin(null)
     setNews([])
     setAdmins([])
+    setMailTemplates([])
     setMessage('')
+  }
+
+  async function handleSaveMail(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setMessage('')
+
+    try {
+      const updated = await updateMailTemplate(selectedMailKind, {
+        isEnabled: mailForm.isEnabled,
+        subject: mailForm.subject.trim(),
+        htmlBody: mailForm.htmlBody,
+        textBody: mailForm.textBody.trim(),
+      })
+      setMailTemplates((current) => current.map((item) => (item.kind === updated.kind ? updated : item)))
+      setMessage(`Шаблон "${activeMailTab.title}" сохранен.`)
+    } catch (err) {
+      setError(err.message || 'Не удалось сохранить шаблон письма.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function handleSaveNews(event) {
@@ -297,6 +498,103 @@ export function AdminPage({ onNavigate }) {
 
       <main className="admin-workspace">
         {(message || error) && <div className={`admin-alert ${error ? 'error' : 'success'}`}>{error || message}</div>}
+
+        <section className="admin-panel mail-panel">
+          <div className="admin-panel-head">
+            <div>
+              <p className="admin-kicker">Почта</p>
+              <h2>Шаблоны писем</h2>
+              <p className="admin-panel-note">
+                Управляем отправкой, текстом и медиа для писем регистрации и восстановления пароля.
+              </p>
+            </div>
+          </div>
+
+          <div className="mail-tabs">
+            {mailTabs.map((tab) => (
+              <button
+                key={tab.kind}
+                type="button"
+                className={selectedMailKind === tab.kind ? 'active' : ''}
+                onClick={() => setSelectedMailKind(tab.kind)}
+              >
+                <strong>{tab.title}</strong>
+                <span>{tab.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <form className="mail-template-form" onSubmit={handleSaveMail}>
+            <div className="mail-settings-row">
+              <label className="mail-toggle">
+                <input
+                  type="checkbox"
+                  checked={mailForm.isEnabled}
+                  onChange={(event) => setMailForm({ ...mailForm, isEnabled: event.target.checked })}
+                />
+                <span>
+                  <strong>{mailForm.isEnabled ? 'Отправка включена' : 'Отправка выключена'}</strong>
+                  <small>Если выключить, форма на сайте примет заявку, но письмо клиенту не уйдет.</small>
+                </span>
+              </label>
+
+              <label className="mail-subject-field">
+                <span>Тема письма</span>
+                <input
+                  value={mailForm.subject}
+                  onChange={(event) => setMailForm({ ...mailForm, subject: event.target.value })}
+                  placeholder="Например: Vision: регистрация получена"
+                />
+              </label>
+            </div>
+
+            <div className="mail-template-grid">
+              <div className="mail-compose">
+                <div className="mail-compose-head">
+                  <div>
+                    <h3>{activeMailTab.title}</h3>
+                    <p>{activeMailTab.description}</p>
+                  </div>
+                  <div className="mail-status-pill">{mailForm.isEnabled ? 'active' : 'paused'}</div>
+                </div>
+
+                <MailEditor
+                  value={mailForm.htmlBody}
+                  onChange={(htmlBody) => setMailForm((current) => ({ ...current, htmlBody }))}
+                />
+
+                <label className="mail-text-fallback">
+                  <span>Текстовая версия письма</span>
+                  <textarea
+                    rows={6}
+                    value={mailForm.textBody}
+                    onChange={(event) => setMailForm({ ...mailForm, textBody: event.target.value })}
+                    placeholder="Можно оставить пустым: backend сформирует plain-text из HTML."
+                  />
+                </label>
+              </div>
+
+              <aside className="mail-preview">
+                <div className="mail-preview-top">
+                  <p className="admin-kicker">Предпросмотр</p>
+                  <strong>{mailForm.subject || 'Без темы'}</strong>
+                </div>
+                <div className="mail-preview-device">
+                  <div dangerouslySetInnerHTML={{ __html: renderPreviewTemplate(mailForm.htmlBody) }} />
+                </div>
+                <div className="mail-preview-vars">
+                  {activeMailTab.variables.map((variable) => (
+                    <span key={variable}>{variable}</span>
+                  ))}
+                </div>
+              </aside>
+            </div>
+
+            <button type="submit" className="admin-primary" disabled={busy || !mailForm.subject || !mailForm.htmlBody}>
+              {busy ? 'Сохраняем...' : 'Сохранить шаблон'}
+            </button>
+          </form>
+        </section>
 
         <section className="admin-panel">
           <div className="admin-panel-head">

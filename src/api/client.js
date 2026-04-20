@@ -56,6 +56,17 @@ export function fetchAdminNews() {
   return apiRequest('/api/admin/news')
 }
 
+export function fetchMailTemplates() {
+  return apiRequest('/api/admin/mail-templates')
+}
+
+export function updateMailTemplate(kind, payload) {
+  return apiRequest(`/api/admin/mail-templates/${kind}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createNewsItem(item) {
   return apiRequest('/api/admin/news', {
     method: 'POST',

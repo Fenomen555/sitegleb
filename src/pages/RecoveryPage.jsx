@@ -23,9 +23,13 @@ export function RecoveryPage({ t, onNavigate }) {
     const email = String(form.get('email') || '').trim()
 
     try {
-      await sendRecoveryMail(email)
+      const result = await sendRecoveryMail(email)
       setError('')
-      setStatus('Письмо восстановления отправлено. Проверьте почту.')
+      setStatus(
+        result?.sent === false
+          ? 'Запрос принят. Письмо восстановления сейчас выключено администратором.'
+          : 'Письмо восстановления отправлено. Проверьте почту.',
+      )
       event.currentTarget.reset()
     } catch (err) {
       setStatus('')
