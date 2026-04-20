@@ -65,7 +65,7 @@ const previewVariables = {
   site_url: 'https://visionoftrading.com',
 }
 
-const brandLogoUrl = '/mail-avatar.png'
+const brandLogoUrl = '/mail-avatar-email.png'
 
 function newsToForm(item) {
   return {
@@ -171,7 +171,7 @@ function MailEditor({ value, onChange, onInsertVariable }) {
   }
 
   function insertImage() {
-    const url = window.prompt('Ссылка на изображение', 'https://visionoftrading.com/mail-avatar.png')
+    const url = window.prompt('Ссылка на изображение', 'https://visionoftrading.com/mail-avatar-email.png')
     if (!url) {
       return
     }
