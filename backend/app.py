@@ -22,6 +22,7 @@ SESSION_COOKIE = "vision_admin_session"
 SESSION_DAYS = 14
 PASSWORD_ITERATIONS = 260_000
 MAIL_TEMPLATE_KINDS = {"registration", "recovery"}
+BRAND_LOGO_URL = "https://visionoftrading.com/mail-avatar.png"
 
 
 app = FastAPI(title="Vision API")
@@ -141,14 +142,15 @@ def default_mail_templates() -> dict[str, dict[str, str]]:
     return {
         "registration": {
             "subject": "Vision: регистрация получена",
-            "html": """
+            "html": f"""
 <div style="margin:0;background:#eef7ff;padding:28px;font-family:Arial,sans-serif;color:#102d4d">
   <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #cfe1f1;border-radius:24px;padding:28px">
+    <img src="{BRAND_LOGO_URL}" width="72" height="72" alt="Vision" style="display:block;border-radius:50%;margin:0 0 16px;object-fit:cover">
     <p style="margin:0 0 12px;color:#2477c7;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Vision</p>
     <h1 style="margin:0 0 14px;font-size:28px;line-height:1.12;color:#0f2f51">Регистрация получена</h1>
-    <p style="margin:0 0 14px;line-height:1.65">Мы получили заявку на регистрацию для <b>{{email}}</b>.</p>
+    <p style="margin:0 0 14px;line-height:1.65">Мы получили заявку на регистрацию для <b>{{{{email}}}}</b>.</p>
     <p style="margin:0 0 14px;line-height:1.65">Команда проверит данные и свяжется с вами, если потребуется дополнительная информация.</p>
-    <p style="margin:0 0 18px;line-height:1.65;color:#43698f">Промокод: <b>{{promo}}</b></p>
+    <p style="margin:0 0 18px;line-height:1.65;color:#43698f">Промокод: <b>{{{{promo}}}}</b></p>
     <div style="height:1px;background:#d9e8f5;margin:20px 0"></div>
     <p style="margin:0;color:#6383a1;font-size:13px;line-height:1.55">Если вы не отправляли заявку, просто проигнорируйте это письмо.</p>
   </div>
@@ -164,12 +166,13 @@ def default_mail_templates() -> dict[str, dict[str, str]]:
         },
         "recovery": {
             "subject": "Vision: восстановление пароля",
-            "html": """
+            "html": f"""
 <div style="margin:0;background:#eef7ff;padding:28px;font-family:Arial,sans-serif;color:#102d4d">
   <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #cfe1f1;border-radius:24px;padding:28px">
+    <img src="{BRAND_LOGO_URL}" width="72" height="72" alt="Vision" style="display:block;border-radius:50%;margin:0 0 16px;object-fit:cover">
     <p style="margin:0 0 12px;color:#2477c7;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Vision</p>
     <h1 style="margin:0 0 14px;font-size:28px;line-height:1.12;color:#0f2f51">Восстановление пароля</h1>
-    <p style="margin:0 0 14px;line-height:1.65">Мы получили запрос на восстановление пароля для <b>{{email}}</b>.</p>
+    <p style="margin:0 0 14px;line-height:1.65">Мы получили запрос на восстановление пароля для <b>{{{{email}}}}</b>.</p>
     <p style="margin:0 0 14px;line-height:1.65">На этом этапе отправка уже подключена. Следующим шагом мы добавим одноразовую ссылку для смены пароля.</p>
     <div style="height:1px;background:#d9e8f5;margin:20px 0"></div>
     <p style="margin:0;color:#6383a1;font-size:13px;line-height:1.55">Если вы не запрашивали восстановление, просто проигнорируйте это письмо.</p>
@@ -407,6 +410,16 @@ def seed_mail_templates() -> None:
                     VALUES (%s, 1, %s, %s, %s)
                     """,
                     (kind, template["subject"], template["html"], template["text"]),
+                )
+                cursor.execute(
+                    """
+                    UPDATE mail_templates
+                    SET html_body = %s
+                    WHERE kind = %s
+                      AND html_body NOT LIKE %s
+                      AND html_body LIKE %s
+                    """,
+                    (template["html"], kind, f"%{BRAND_LOGO_URL}%", '%<p style="margin:0 0 12px;color:#2477c7%'),
                 )
 
 

@@ -52,11 +52,20 @@ const mailTabs = [
   },
 ]
 
+const adminMenuItems = [
+  { key: 'mail', label: 'Почта', hint: 'Шаблоны и отправка' },
+  { key: 'news-create', label: 'Новая новость', hint: 'Создание и правка' },
+  { key: 'news-list', label: 'Лента', hint: 'Все новости' },
+  { key: 'admins', label: 'Доступы', hint: 'Администраторы' },
+]
+
 const previewVariables = {
   email: 'client@example.com',
   promo: 'VISION2026',
   site_url: 'https://visionoftrading.com',
 }
+
+const brandLogoUrl = '/mail-avatar.png'
 
 function newsToForm(item) {
   return {
@@ -125,21 +134,36 @@ function escapeHtml(value) {
 
 function MailEditor({ value, onChange, onInsertVariable }) {
   const editorRef = useRef(null)
+  const [sourceMode, setSourceMode] = useState(false)
 
   useEffect(() => {
+    if (sourceMode) {
+      return
+    }
     if (editorRef.current && document.activeElement !== editorRef.current && editorRef.current.innerHTML !== value) {
       editorRef.current.innerHTML = value || ''
     }
-  }, [value])
+  }, [sourceMode, value])
 
-  function runCommand(command, commandValue = null) {
-    editorRef.current?.focus()
-    document.execCommand(command, false, commandValue)
+  function syncFromCanvas() {
     onChange(editorRef.current?.innerHTML || '')
   }
 
+  function runCommand(command, commandValue = null) {
+    if (sourceMode) {
+      return
+    }
+    editorRef.current?.focus()
+    document.execCommand(command, false, commandValue)
+    syncFromCanvas()
+  }
+
+  function insertHtml(html) {
+    runCommand('insertHTML', html)
+  }
+
   function insertLink() {
-    const url = window.prompt('Вставьте ссылку')
+    const url = window.prompt('Вставьте ссылку', 'https://visionoftrading.com')
     if (!url) {
       return
     }
@@ -147,12 +171,11 @@ function MailEditor({ value, onChange, onInsertVariable }) {
   }
 
   function insertImage() {
-    const url = window.prompt('Ссылка на изображение')
+    const url = window.prompt('Ссылка на изображение', 'https://visionoftrading.com/mail-avatar.png')
     if (!url) {
       return
     }
-    runCommand(
-      'insertHTML',
+    insertHtml(
       `<img src="${escapeHtml(url)}" alt="" style="max-width:100%;border-radius:18px;display:block;margin:16px 0;" />`,
     )
   }
@@ -163,68 +186,195 @@ function MailEditor({ value, onChange, onInsertVariable }) {
       return
     }
     const label = window.prompt('Текст кнопки', 'Открыть сайт') || 'Открыть сайт'
-    runCommand(
-      'insertHTML',
+    insertHtml(
       `<p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 18px;border-radius:999px;background:#1f82ff;color:#ffffff;text-decoration:none;font-weight:700;">${escapeHtml(label)}</a></p>`,
     )
   }
 
+  function insertTable() {
+    const rows = Number(window.prompt('Сколько строк?', '2') || 2)
+    const columns = Number(window.prompt('Сколько колонок?', '2') || 2)
+    if (!rows || !columns || rows < 1 || columns < 1) {
+      return
+    }
+
+    const cells = Array.from({ length: columns }, () => '<td style="padding:10px;border:1px solid #d7e6f3;">Текст</td>').join('')
+    const tableRows = Array.from({ length: rows }, () => `<tr>${cells}</tr>`).join('')
+    insertHtml(`<table style="width:100%;border-collapse:collapse;margin:16px 0;">${tableRows}</table>`)
+  }
+
   function insertVariable(variable) {
+    if (sourceMode) {
+      onChange(`${value || ''}${variable}`)
+      onInsertVariable?.(variable)
+      return
+    }
     runCommand('insertText', variable)
     onInsertVariable?.(variable)
   }
 
+  function toggleSourceMode() {
+    if (sourceMode && editorRef.current) {
+      editorRef.current.innerHTML = value || ''
+    }
+    setSourceMode((current) => !current)
+  }
+
+  const variables = mailTabs
+    .flatMap((tab) => tab.variables)
+    .filter((variable, index, list) => list.indexOf(variable) === index)
+
   return (
     <div className="mail-editor">
       <div className="mail-editor-toolbar" aria-label="Панель редактора письма">
-        <button type="button" onClick={() => runCommand('formatBlock', 'h2')}>
-          H2
-        </button>
-        <button type="button" onClick={() => runCommand('formatBlock', 'p')}>
-          P
-        </button>
-        <button type="button" onClick={() => runCommand('bold')}>
-          Жирный
-        </button>
-        <button type="button" onClick={() => runCommand('italic')}>
-          Курсив
-        </button>
-        <button type="button" onClick={() => runCommand('insertUnorderedList')}>
-          Список
-        </button>
-        <button type="button" onClick={() => runCommand('justifyLeft')}>
-          Слева
-        </button>
-        <button type="button" onClick={() => runCommand('justifyCenter')}>
-          Центр
-        </button>
-        <button type="button" onClick={insertLink}>
-          Ссылка
-        </button>
-        <button type="button" onClick={insertButton}>
-          Кнопка
-        </button>
-        <button type="button" onClick={insertImage}>
-          Медиа
-        </button>
+        <div className="mail-toolbar-group">
+          <button type="button" className={sourceMode ? 'active' : ''} onClick={toggleSourceMode}>
+            Источник
+          </button>
+          <button type="button" onClick={() => runCommand('undo')}>
+            Назад
+          </button>
+          <button type="button" onClick={() => runCommand('redo')}>
+            Вперед
+          </button>
+        </div>
+
+        <div className="mail-toolbar-group">
+          <select defaultValue="" onChange={(event) => runCommand('formatBlock', event.target.value)}>
+            <option value="" disabled>
+              Формат
+            </option>
+            <option value="p">Абзац</option>
+            <option value="h1">Заголовок H1</option>
+            <option value="h2">Заголовок H2</option>
+            <option value="h3">Заголовок H3</option>
+            <option value="blockquote">Цитата</option>
+          </select>
+          <select defaultValue="" onChange={(event) => runCommand('fontName', event.target.value)}>
+            <option value="" disabled>
+              Шрифт
+            </option>
+            <option value="Arial">Arial</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Trebuchet MS">Trebuchet</option>
+            <option value="Verdana">Verdana</option>
+          </select>
+          <select defaultValue="" onChange={(event) => runCommand('fontSize', event.target.value)}>
+            <option value="" disabled>
+              Размер
+            </option>
+            <option value="2">Малый</option>
+            <option value="3">Обычный</option>
+            <option value="4">Крупный</option>
+            <option value="5">Большой</option>
+          </select>
+        </div>
+
+        <div className="mail-toolbar-group">
+          <button type="button" onClick={() => runCommand('bold')}>
+            B
+          </button>
+          <button type="button" onClick={() => runCommand('italic')}>
+            I
+          </button>
+          <button type="button" onClick={() => runCommand('underline')}>
+            U
+          </button>
+          <button type="button" onClick={() => runCommand('strikeThrough')}>
+            S
+          </button>
+          <button type="button" onClick={() => runCommand('subscript')}>
+            x₂
+          </button>
+          <button type="button" onClick={() => runCommand('superscript')}>
+            x²
+          </button>
+        </div>
+
+        <div className="mail-toolbar-group">
+          <button type="button" onClick={() => runCommand('insertUnorderedList')}>
+            Список
+          </button>
+          <button type="button" onClick={() => runCommand('insertOrderedList')}>
+            1.2.
+          </button>
+          <button type="button" onClick={() => runCommand('outdent')}>
+            ←
+          </button>
+          <button type="button" onClick={() => runCommand('indent')}>
+            →
+          </button>
+          <button type="button" onClick={() => runCommand('justifyLeft')}>
+            Слева
+          </button>
+          <button type="button" onClick={() => runCommand('justifyCenter')}>
+            Центр
+          </button>
+          <button type="button" onClick={() => runCommand('justifyRight')}>
+            Справа
+          </button>
+        </div>
+
+        <div className="mail-toolbar-group">
+          <button type="button" onClick={insertLink}>
+            Ссылка
+          </button>
+          <button type="button" onClick={insertButton}>
+            Кнопка
+          </button>
+          <button type="button" onClick={insertImage}>
+            Медиа
+          </button>
+          <button type="button" onClick={insertTable}>
+            Таблица
+          </button>
+          <button type="button" onClick={() => insertHtml('<hr style="border:0;border-top:1px solid #d9e8f5;margin:20px 0;" />')}>
+            Линия
+          </button>
+          <button type="button" onClick={() => insertHtml('Ω')}>
+            Ω
+          </button>
+        </div>
+
+        <div className="mail-toolbar-group color-group">
+          <label>
+            Цвет
+            <input type="color" defaultValue="#102d4d" onChange={(event) => runCommand('foreColor', event.target.value)} />
+          </label>
+          <label>
+            Фон
+            <input type="color" defaultValue="#eef7ff" onChange={(event) => runCommand('hiliteColor', event.target.value)} />
+          </label>
+          <button type="button" onClick={() => runCommand('removeFormat')}>
+            Очистить
+          </button>
+        </div>
       </div>
-      <div
-        ref={editorRef}
-        className="mail-editor-canvas"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={(event) => onChange(event.currentTarget.innerHTML)}
-      />
+
+      {sourceMode ? (
+        <textarea
+          className="mail-source-canvas"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          spellCheck="false"
+        />
+      ) : (
+        <div
+          ref={editorRef}
+          className="mail-editor-canvas"
+          contentEditable
+          suppressContentEditableWarning
+          onInput={syncFromCanvas}
+        />
+      )}
+
       <div className="mail-variable-row">
         <span>Переменные:</span>
-        {mailTabs
-          .flatMap((tab) => tab.variables)
-          .filter((variable, index, list) => list.indexOf(variable) === index)
-          .map((variable) => (
-            <button key={variable} type="button" onClick={() => insertVariable(variable)}>
-              {variable}
-            </button>
-          ))}
+        {variables.map((variable) => (
+          <button key={variable} type="button" onClick={() => insertVariable(variable)}>
+            {variable}
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -239,6 +389,7 @@ export function AdminPage({ onNavigate }) {
   const [admins, setAdmins] = useState([])
   const [mailTemplates, setMailTemplates] = useState([])
   const [selectedMailKind, setSelectedMailKind] = useState('registration')
+  const [activeSection, setActiveSection] = useState('mail')
   const [mailForm, setMailForm] = useState(emptyMailForm)
   const [newsForm, setNewsForm] = useState(emptyNewsForm)
   const [adminForm, setAdminForm] = useState({ login: '', password: '', role: 'admin' })
@@ -486,6 +637,20 @@ export function AdminPage({ onNavigate }) {
           <p>Вы вошли как {admin.login}</p>
         </div>
 
+        <nav className="admin-menu" aria-label="Разделы админки">
+          {adminMenuItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={activeSection === item.key ? 'active' : ''}
+              onClick={() => setActiveSection(item.key)}
+            >
+              <span>{item.label}</span>
+              <small>{item.hint}</small>
+            </button>
+          ))}
+        </nav>
+
         <div className="admin-sidebar-actions">
           <button type="button" onClick={() => onNavigate('/')}>
             Открыть сайт
@@ -499,6 +664,7 @@ export function AdminPage({ onNavigate }) {
       <main className="admin-workspace">
         {(message || error) && <div className={`admin-alert ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
+        {activeSection === 'mail' && (
         <section className="admin-panel mail-panel">
           <div className="admin-panel-head">
             <div>
@@ -507,6 +673,13 @@ export function AdminPage({ onNavigate }) {
               <p className="admin-panel-note">
                 Управляем отправкой, текстом и медиа для писем регистрации и восстановления пароля.
               </p>
+            </div>
+            <div className="mail-brand-card">
+              <img src={brandLogoUrl} alt="Vision mail avatar" />
+              <span>
+                <strong>Аватар письма</strong>
+                <small>Подключен как бренд-логотип в шаблонах</small>
+              </span>
             </div>
           </div>
 
@@ -595,7 +768,9 @@ export function AdminPage({ onNavigate }) {
             </button>
           </form>
         </section>
+        )}
 
+        {activeSection === 'news-create' && (
         <section className="admin-panel">
           <div className="admin-panel-head">
             <div>
@@ -685,7 +860,9 @@ export function AdminPage({ onNavigate }) {
             </button>
           </form>
         </section>
+        )}
 
+        {activeSection === 'news-list' && (
         <section className="admin-panel">
           <div className="admin-panel-head">
             <div>
@@ -705,7 +882,13 @@ export function AdminPage({ onNavigate }) {
                   </p>
                 </div>
                 <div>
-                  <button type="button" onClick={() => setNewsForm(newsToForm(item))}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewsForm(newsToForm(item))
+                      setActiveSection('news-create')
+                    }}
+                  >
                     Изменить
                   </button>
                   <button type="button" className="danger" onClick={() => handleDeleteNews(item)}>
@@ -716,7 +899,9 @@ export function AdminPage({ onNavigate }) {
             ))}
           </div>
         </section>
+        )}
 
+        {activeSection === 'admins' && (
         <section className="admin-panel">
           <div className="admin-panel-head">
             <div>
@@ -763,6 +948,7 @@ export function AdminPage({ onNavigate }) {
             ))}
           </div>
         </section>
+        )}
       </main>
     </div>
   )
