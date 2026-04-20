@@ -151,14 +151,6 @@ export function HomePage({ t, language, onNavigate, newsItems }) {
     track.scrollBy({ left: direction * step, behavior: 'smooth' })
   }
 
-  function handleNewsWheel(event) {
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-      return
-    }
-    event.preventDefault()
-    window.scrollBy({ top: event.deltaY, left: 0, behavior: 'auto' })
-  }
-
   return (
     <div className="home-page">
       <section className="hero-stage">
@@ -367,7 +359,7 @@ export function HomePage({ t, language, onNavigate, newsItems }) {
           </div>
 
           <div className="news-strip-track-shell" data-reveal="up" data-reveal-delay="100">
-            <div className="news-strip-track" ref={carouselRef} onWheel={handleNewsWheel}>
+            <div className="news-strip-track" ref={carouselRef}>
               {topNews.map((item) => {
                 const localized = item[language] ?? item.ru
                 return (
