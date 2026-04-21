@@ -100,19 +100,18 @@ function newsToForm(item) {
     isPublished: item.isPublished,
     ruTitle: item.ru?.title || '',
     ruExcerpt: item.ru?.excerpt || '',
-    ruContent: (item.ru?.content || []).join('\n'),
+    ruContent: contentListToEditorHtml(item.ru?.content),
     enTitle: item.en?.title || '',
     enExcerpt: item.en?.excerpt || '',
-    enContent: (item.en?.content || []).join('\n'),
+    enContent: contentListToEditorHtml(item.en?.content),
   }
 }
 
 function formToNews(form) {
-  const splitContent = (value) =>
-    value
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
+  const editorContent = (value) => {
+    const cleanValue = value.trim()
+    return cleanValue ? [cleanValue] : []
+  }
 
   return {
     slug: form.slug.trim(),
@@ -122,12 +121,12 @@ function formToNews(form) {
     ru: {
       title: form.ruTitle.trim(),
       excerpt: form.ruExcerpt.trim(),
-      content: splitContent(form.ruContent),
+      content: editorContent(form.ruContent),
     },
     en: {
       title: form.enTitle.trim(),
       excerpt: form.enExcerpt.trim(),
-      content: splitContent(form.enContent),
+      content: editorContent(form.enContent),
     },
   }
 }
@@ -154,6 +153,21 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+}
+
+function hasHtmlMarkup(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(value)
+}
+
+function contentListToEditorHtml(content) {
+  const entries = Array.isArray(content) ? content.filter(Boolean) : []
+  if (!entries.length) {
+    return ''
+  }
+  if (entries.some(hasHtmlMarkup)) {
+    return entries.join('')
+  }
+  return entries.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('')
 }
 
 function MailEditor({ value, onChange, onInsertVariable }) {
@@ -400,6 +414,222 @@ function MailEditor({ value, onChange, onInsertVariable }) {
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+function NewsRichEditor({ value, onChange, language }) {
+  const editorRef = useRef(null)
+  const [sourceMode, setSourceMode] = useState(false)
+
+  useEffect(() => {
+    if (sourceMode) {
+      return
+    }
+    if (editorRef.current && document.activeElement !== editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || ''
+    }
+  }, [sourceMode, value])
+
+  function syncFromCanvas() {
+    onChange(editorRef.current?.innerHTML || '')
+  }
+
+  function runCommand(command, commandValue = null) {
+    if (sourceMode) {
+      return
+    }
+    editorRef.current?.focus()
+    document.execCommand(command, false, commandValue)
+    syncFromCanvas()
+  }
+
+  function insertHtml(html) {
+    runCommand('insertHTML', html)
+  }
+
+  function insertLink() {
+    const url = window.prompt('Ссылка', 'https://visionoftrading.com')
+    if (!url) {
+      return
+    }
+    const selection = window.getSelection()?.toString()
+    if (selection) {
+      runCommand('createLink', url)
+      return
+    }
+    const label = window.prompt('Текст ссылки', 'Открыть материал') || url
+    insertHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`)
+  }
+
+  function insertImage() {
+    const url = window.prompt('Ссылка на изображение', 'https://visionoftrading.com/mail-avatar-email.png')
+    if (!url) {
+      return
+    }
+    const caption = window.prompt('Подпись к изображению', '')
+    insertHtml(
+      `<figure class="article-media"><img src="${escapeHtml(url)}" alt="${escapeHtml(caption || '')}" />${
+        caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''
+      }</figure>`,
+    )
+  }
+
+  function insertButton() {
+    const url = window.prompt('Ссылка для кнопки', 'https://visionoftrading.com')
+    if (!url) {
+      return
+    }
+    const label = window.prompt('Текст кнопки', 'Перейти') || 'Перейти'
+    insertHtml(`<p><a class="article-action" href="${escapeHtml(url)}">${escapeHtml(label)}</a></p>`)
+  }
+
+  function insertSignalCard() {
+    insertHtml(
+      '<aside class="article-signal"><strong>Идея дня</strong><span>EUR/USD в фокусе: дождаться подтверждения тренда и работать только по плану риска.</span></aside>',
+    )
+  }
+
+  function insertLead() {
+    insertHtml('<p class="article-lead">Ключевой вывод материала: коротко, уверенно и по делу.</p>')
+  }
+
+  function insertTable() {
+    const rows = Number(window.prompt('Сколько строк?', '3') || 3)
+    const columns = Number(window.prompt('Сколько колонок?', '2') || 2)
+    if (!rows || !columns || rows < 1 || columns < 1) {
+      return
+    }
+
+    const cells = Array.from({ length: columns }, () => '<td>Текст</td>').join('')
+    const tableRows = Array.from({ length: rows }, () => `<tr>${cells}</tr>`).join('')
+    insertHtml(`<table><tbody>${tableRows}</tbody></table>`)
+  }
+
+  function toggleSourceMode() {
+    if (sourceMode && editorRef.current) {
+      editorRef.current.innerHTML = value || ''
+    }
+    setSourceMode((current) => !current)
+  }
+
+  const emptyLabel = language === 'ru' ? 'Начните писать статью...' : 'Start writing the article...'
+
+  return (
+    <div className="news-rich-editor">
+      <div className="news-rich-topline">
+        <div>
+          <span>{language.toUpperCase()}</span>
+          <strong>{sourceMode ? 'HTML источник' : 'Визуальный редактор'}</strong>
+        </div>
+        <button type="button" className={sourceMode ? 'active' : ''} onClick={toggleSourceMode}>
+          {sourceMode ? 'Визуально' : 'HTML'}
+        </button>
+      </div>
+
+      <div className="news-rich-toolbar" aria-label={`Панель редактора ${language.toUpperCase()}`}>
+        <div className="news-toolbar-group">
+          <button type="button" onClick={() => runCommand('undo')}>
+            Назад
+          </button>
+          <button type="button" onClick={() => runCommand('redo')}>
+            Вперед
+          </button>
+          <select defaultValue="" onChange={(event) => runCommand('formatBlock', event.target.value)}>
+            <option value="" disabled>
+              Блок
+            </option>
+            <option value="p">Абзац</option>
+            <option value="h2">H2</option>
+            <option value="h3">H3</option>
+            <option value="blockquote">Цитата</option>
+          </select>
+        </div>
+
+        <div className="news-toolbar-group compact">
+          <button type="button" onClick={() => runCommand('bold')}>
+            B
+          </button>
+          <button type="button" onClick={() => runCommand('italic')}>
+            I
+          </button>
+          <button type="button" onClick={() => runCommand('underline')}>
+            U
+          </button>
+          <button type="button" onClick={() => runCommand('strikeThrough')}>
+            S
+          </button>
+          <button type="button" onClick={() => runCommand('removeFormat')}>
+            Очистить
+          </button>
+        </div>
+
+        <div className="news-toolbar-group">
+          <button type="button" onClick={() => runCommand('insertUnorderedList')}>
+            Список
+          </button>
+          <button type="button" onClick={() => runCommand('insertOrderedList')}>
+            1.2.
+          </button>
+          <button type="button" onClick={() => runCommand('justifyLeft')}>
+            Слева
+          </button>
+          <button type="button" onClick={() => runCommand('justifyCenter')}>
+            Центр
+          </button>
+          <button type="button" onClick={() => runCommand('justifyRight')}>
+            Справа
+          </button>
+        </div>
+
+        <div className="news-toolbar-group">
+          <button type="button" onClick={insertLink}>
+            Ссылка
+          </button>
+          <button type="button" onClick={insertImage}>
+            Медиа
+          </button>
+          <button type="button" onClick={insertButton}>
+            Кнопка
+          </button>
+          <button type="button" onClick={insertTable}>
+            Таблица
+          </button>
+          <button type="button" onClick={() => insertHtml('<hr />')}>
+            Линия
+          </button>
+        </div>
+
+        <div className="news-toolbar-group">
+          <button type="button" onClick={insertLead}>
+            Лид
+          </button>
+          <button type="button" onClick={() => insertHtml('<blockquote>Важная мысль материала.</blockquote>')}>
+            Цитата
+          </button>
+          <button type="button" onClick={insertSignalCard}>
+            Сигнал
+          </button>
+        </div>
+      </div>
+
+      {sourceMode ? (
+        <textarea
+          className="news-source-canvas"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          spellCheck="false"
+        />
+      ) : (
+        <div
+          ref={editorRef}
+          className="news-editor-canvas"
+          contentEditable
+          data-placeholder={emptyLabel}
+          suppressContentEditableWarning
+          onInput={syncFromCanvas}
+        />
+      )}
     </div>
   )
 }
@@ -946,11 +1176,10 @@ export function AdminPage({ onNavigate }) {
                   value={newsForm.ruExcerpt}
                   onChange={(event) => setNewsForm({ ...newsForm, ruExcerpt: event.target.value })}
                 />
-                <textarea
-                  placeholder="Текст статьи: один абзац на строку"
-                  rows={6}
+                <NewsRichEditor
+                  language="ru"
                   value={newsForm.ruContent}
-                  onChange={(event) => setNewsForm({ ...newsForm, ruContent: event.target.value })}
+                  onChange={(ruContent) => setNewsForm((current) => ({ ...current, ruContent }))}
                 />
               </fieldset>
 
@@ -966,11 +1195,10 @@ export function AdminPage({ onNavigate }) {
                   value={newsForm.enExcerpt}
                   onChange={(event) => setNewsForm({ ...newsForm, enExcerpt: event.target.value })}
                 />
-                <textarea
-                  placeholder="Article text: one paragraph per line"
-                  rows={6}
+                <NewsRichEditor
+                  language="en"
                   value={newsForm.enContent}
-                  onChange={(event) => setNewsForm({ ...newsForm, enContent: event.target.value })}
+                  onChange={(enContent) => setNewsForm((current) => ({ ...current, enContent }))}
                 />
               </fieldset>
             </div>
