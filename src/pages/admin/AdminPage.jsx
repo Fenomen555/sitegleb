@@ -55,28 +55,28 @@ const mailTabs = [
 const adminMenuItems = [
   {
     key: 'mail',
-    badge: 'ML',
+    badge: '01',
     label: 'Почта',
     hint: 'Шаблоны, отправка, предпросмотр',
     description: 'Письма регистрации и восстановления пароля',
   },
   {
     key: 'news-create',
-    badge: 'NW',
+    badge: '02',
     label: 'Новая новость',
     hint: 'Создание и редактирование',
     description: 'Быстрая публикация RU/EN материалов',
   },
   {
     key: 'news-list',
-    badge: 'FD',
+    badge: '03',
     label: 'Лента',
     hint: 'Все новости сайта',
     description: 'Управление опубликованными материалами',
   },
   {
     key: 'admins',
-    badge: 'AD',
+    badge: '04',
     label: 'Доступы',
     hint: 'Администраторы',
     description: 'Права входа и активность аккаунтов',
@@ -736,6 +736,20 @@ export function AdminPage({ onNavigate }) {
           </button>
         </div>
       </aside>
+
+      <nav className="admin-mobile-nav" aria-label="Быстрая навигация админки">
+        {adminMenuItems.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={activeSection === item.key ? 'active' : ''}
+            onClick={() => selectAdminSection(item.key)}
+          >
+            <span>{item.badge}</span>
+            {item.label}
+          </button>
+        ))}
+      </nav>
 
       <main className="admin-workspace">
         <header className="admin-topbar">
