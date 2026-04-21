@@ -53,10 +53,34 @@ const mailTabs = [
 ]
 
 const adminMenuItems = [
-  { key: 'mail', label: 'Почта', hint: 'Шаблоны и отправка' },
-  { key: 'news-create', label: 'Новая новость', hint: 'Создание и правка' },
-  { key: 'news-list', label: 'Лента', hint: 'Все новости' },
-  { key: 'admins', label: 'Доступы', hint: 'Администраторы' },
+  {
+    key: 'mail',
+    badge: 'ML',
+    label: 'Почта',
+    hint: 'Шаблоны, отправка, предпросмотр',
+    description: 'Письма регистрации и восстановления пароля',
+  },
+  {
+    key: 'news-create',
+    badge: 'NW',
+    label: 'Новая новость',
+    hint: 'Создание и редактирование',
+    description: 'Быстрая публикация RU/EN материалов',
+  },
+  {
+    key: 'news-list',
+    badge: 'FD',
+    label: 'Лента',
+    hint: 'Все новости сайта',
+    description: 'Управление опубликованными материалами',
+  },
+  {
+    key: 'admins',
+    badge: 'AD',
+    label: 'Доступы',
+    hint: 'Администраторы',
+    description: 'Права входа и активность аккаунтов',
+  },
 ]
 
 const previewVariables = {
@@ -396,13 +420,22 @@ export function AdminPage({ onNavigate }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false)
 
   const sortedNews = useMemo(
     () => [...news].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [news],
   )
 
+  const activeMenuItem = adminMenuItems.find((item) => item.key === activeSection) || adminMenuItems[0]
   const activeMailTab = mailTabs.find((tab) => tab.kind === selectedMailKind) || mailTabs[0]
+  const enabledMailCount = mailTemplates.filter((item) => item.isEnabled).length
+  const activeAdminsCount = admins.filter((item) => item.isActive).length
+
+  function selectAdminSection(key) {
+    setActiveSection(key)
+    setIsAdminMenuOpen(false)
+  }
 
   async function loadAdminData() {
     const [nextNews, nextAdmins, nextMailTemplates] = await Promise.all([
@@ -456,6 +489,21 @@ export function AdminPage({ onNavigate }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isAdminMenuOpen) {
+      return undefined
+    }
+
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') {
+        setIsAdminMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [isAdminMenuOpen])
+
   async function handleLogin(event) {
     event.preventDefault()
     setBusy(true)
@@ -482,6 +530,7 @@ export function AdminPage({ onNavigate }) {
     setAdmins([])
     setMailTemplates([])
     setMessage('')
+    setIsAdminMenuOpen(false)
   }
 
   async function handleSaveMail(event) {
@@ -629,12 +678,30 @@ export function AdminPage({ onNavigate }) {
   }
 
   return (
-    <div className="admin-page admin-dashboard">
-      <aside className="admin-sidebar">
-        <div>
-          <p className="admin-kicker">Vision backend</p>
-          <h1>Админцентр</h1>
-          <p>Вы вошли как {admin.login}</p>
+    <div className={`admin-page admin-dashboard ${isAdminMenuOpen ? 'menu-open' : ''}`}>
+      <button
+        type="button"
+        className={`admin-menu-backdrop ${isAdminMenuOpen ? 'open' : ''}`}
+        aria-label="Закрыть меню"
+        onClick={() => setIsAdminMenuOpen(false)}
+      />
+
+      <aside className="admin-sidebar" aria-label="Меню админцентра">
+        <div className="admin-sidebar-top">
+          <div className="admin-brand-lock">V</div>
+          <div>
+            <p className="admin-kicker">Vision backend</p>
+            <h1>Админцентр</h1>
+            <p>Вы вошли как {admin.login}</p>
+          </div>
+          <button
+            type="button"
+            className="admin-sidebar-close"
+            aria-label="Закрыть меню"
+            onClick={() => setIsAdminMenuOpen(false)}
+          >
+            Закрыть
+          </button>
         </div>
 
         <nav className="admin-menu" aria-label="Разделы админки">
@@ -643,13 +710,22 @@ export function AdminPage({ onNavigate }) {
               key={item.key}
               type="button"
               className={activeSection === item.key ? 'active' : ''}
-              onClick={() => setActiveSection(item.key)}
+              onClick={() => selectAdminSection(item.key)}
             >
-              <span>{item.label}</span>
-              <small>{item.hint}</small>
+              <span className="admin-menu-badge">{item.badge}</span>
+              <span className="admin-menu-copy">
+                <strong>{item.label}</strong>
+                <small>{item.hint}</small>
+              </span>
             </button>
           ))}
         </nav>
+
+        <div className="admin-sidebar-card">
+          <span>Текущий раздел</span>
+          <strong>{activeMenuItem.label}</strong>
+          <p>{activeMenuItem.description}</p>
+        </div>
 
         <div className="admin-sidebar-actions">
           <button type="button" onClick={() => onNavigate('/')}>
@@ -662,6 +738,36 @@ export function AdminPage({ onNavigate }) {
       </aside>
 
       <main className="admin-workspace">
+        <header className="admin-topbar">
+          <button
+            type="button"
+            className="admin-menu-trigger"
+            aria-expanded={isAdminMenuOpen}
+            onClick={() => setIsAdminMenuOpen(true)}
+          >
+            Меню
+          </button>
+          <div className="admin-topbar-title">
+            <p className="admin-kicker">Рабочая область</p>
+            <h2>{activeMenuItem.label}</h2>
+            <span>{activeMenuItem.description}</span>
+          </div>
+          <div className="admin-quick-stats" aria-label="Быстрая сводка">
+            <span>
+              <strong>{news.length}</strong>
+              Новости
+            </span>
+            <span>
+              <strong>{enabledMailCount}/{mailTemplates.length || 2}</strong>
+              Письма
+            </span>
+            <span>
+              <strong>{activeAdminsCount}</strong>
+              Активные
+            </span>
+          </div>
+        </header>
+
         {(message || error) && <div className={`admin-alert ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
         {activeSection === 'mail' && (
@@ -886,7 +992,7 @@ export function AdminPage({ onNavigate }) {
                     type="button"
                     onClick={() => {
                       setNewsForm(newsToForm(item))
-                      setActiveSection('news-create')
+                      selectAdminSection('news-create')
                     }}
                   >
                     Изменить
