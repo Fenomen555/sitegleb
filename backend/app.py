@@ -10,10 +10,11 @@ from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from html import escape, unescape
+from pathlib import Path
 from typing import Any
 
 import pymysql
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from pymysql.cursors import DictCursor
 
@@ -23,6 +24,13 @@ SESSION_DAYS = 14
 PASSWORD_ITERATIONS = 260_000
 MAIL_TEMPLATE_KINDS = {"registration", "recovery"}
 BRAND_LOGO_URL = "https://visionoftrading.com/mail-avatar-email.png"
+ALLOWED_MEDIA_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+MAX_MEDIA_SIZE = 8 * 1024 * 1024
 
 
 app = FastAPI(title="Vision API")
@@ -230,6 +238,20 @@ def html_to_text(value: str) -> str:
     no_tags = re.sub(r"<[^>]+>", "", with_breaks)
     lines = [line.strip() for line in unescape(no_tags).splitlines()]
     return "\n".join(line for line in lines if line)
+
+
+def media_upload_root() -> Path:
+    return Path(os.getenv("UPLOAD_DIR", "/root/site/uploads")).resolve()
+
+
+def media_public_base() -> str:
+    return os.getenv("UPLOAD_PUBLIC_BASE", "/uploads").rstrip("/")
+
+
+def safe_media_stem(filename: str) -> str:
+    stem = Path(filename or "media").stem.lower()
+    stem = re.sub(r"[^a-z0-9-]+", "-", stem).strip("-")
+    return stem[:48] or "media"
 
 
 def get_mail_template(kind: str) -> dict[str, Any]:
@@ -740,6 +762,39 @@ def logout(request: Request, response: Response) -> dict[str, bool]:
 @app.get("/api/admin/me")
 def me(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     return {"admin": serialize_admin(admin)}
+
+
+@app.post("/api/admin/media", status_code=status.HTTP_201_CREATED)
+async def upload_media(
+    file: UploadFile = File(...),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, str]:
+    del admin
+
+    extension = ALLOWED_MEDIA_TYPES.get(file.content_type or "")
+    if not extension:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only JPG, PNG, WEBP and GIF images are allowed",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+    if len(content) > MAX_MEDIA_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Media file is too large")
+
+    today = datetime.utcnow()
+    relative_dir = Path(str(today.year), f"{today.month:02d}")
+    upload_dir = media_upload_root() / relative_dir
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{today.strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}-{safe_media_stem(file.filename)}{extension}"
+    target = upload_dir / filename
+    target.write_bytes(content)
+
+    public_path = f"{media_public_base()}/{relative_dir.as_posix()}/{filename}"
+    return {"url": public_path, "filename": filename}
 
 
 @app.get("/api/admin/mail-templates")

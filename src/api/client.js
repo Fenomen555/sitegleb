@@ -1,9 +1,10 @@
 export async function apiRequest(path, options = {}) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(path, {
     credentials: 'include',
     ...options,
     headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {}),
     },
   })
@@ -83,6 +84,15 @@ export function updateNewsItem(id, item) {
 
 export function deleteNewsItem(id) {
   return apiRequest(`/api/admin/news/${id}`, { method: 'DELETE' })
+}
+
+export function uploadAdminMedia(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiRequest('/api/admin/media', {
+    method: 'POST',
+    body: formData,
+  })
 }
 
 export function fetchAdmins() {

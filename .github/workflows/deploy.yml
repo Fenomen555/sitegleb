@@ -104,6 +104,7 @@ jobs:
           BACKUP_DIR="$DEPLOY_PATH/backups"
           BACKEND_DIR="$DEPLOY_PATH/backend"
           BACKEND_RELEASE_DIR="$BACKEND_DIR/releases/$SHA"
+          UPLOAD_DIR="$DEPLOY_PATH/uploads"
 
           case "$WEB_ROOT" in
             /var/www/*) ;;
@@ -117,6 +118,8 @@ jobs:
           mkdir -p "$RELEASE_DIR"
           mkdir -p "$BACKUP_DIR"
           mkdir -p "$BACKEND_RELEASE_DIR"
+          mkdir -p "$UPLOAD_DIR"
+          chown -R "$WEB_OWNER" "$UPLOAD_DIR"
 
           tar -czf "$BACKUP_DIR/web-root-before-$SHA.tar.gz" -C "$WEB_ROOT" .
           tar -xzf "$FRONTEND_ARCHIVE" -C "$RELEASE_DIR"
@@ -124,6 +127,8 @@ jobs:
 
           find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
           tar -xzf "$FRONTEND_ARCHIVE" -C "$WEB_ROOT"
+          ln -sfn "$UPLOAD_DIR" "$WEB_ROOT/uploads"
+          chown -h "$WEB_OWNER" "$WEB_ROOT/uploads" || true
           chown -R "$WEB_OWNER" "$WEB_ROOT"
 
           tar -xzf "$BACKEND_ARCHIVE" -C "$BACKEND_RELEASE_DIR"

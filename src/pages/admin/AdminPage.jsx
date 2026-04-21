@@ -12,6 +12,7 @@ import {
   updateAdmin,
   updateMailTemplate,
   updateNewsItem,
+  uploadAdminMedia,
 } from '../../api/client'
 import './AdminPage.css'
 
@@ -197,6 +198,10 @@ function MailEditor({ value, onChange, onInsertVariable }) {
   }
 
   function insertHtml(html) {
+    if (sourceMode) {
+      onChange(`${value || ''}${html}`)
+      return
+    }
     runCommand('insertHTML', html)
   }
 
@@ -420,7 +425,10 @@ function MailEditor({ value, onChange, onInsertVariable }) {
 
 function NewsRichEditor({ value, onChange, language }) {
   const editorRef = useRef(null)
+  const fileInputRef = useRef(null)
   const [sourceMode, setSourceMode] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
 
   useEffect(() => {
     if (sourceMode) {
@@ -445,6 +453,10 @@ function NewsRichEditor({ value, onChange, language }) {
   }
 
   function insertHtml(html) {
+    if (sourceMode) {
+      onChange(`${value || ''}${html}`)
+      return
+    }
     runCommand('insertHTML', html)
   }
 
@@ -473,6 +485,52 @@ function NewsRichEditor({ value, onChange, language }) {
         caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : ''
       }</figure>`,
     )
+  }
+
+  async function uploadImage(file) {
+    if (!file) {
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Можно загрузить только изображение.')
+      return
+    }
+
+    setUploading(true)
+    setUploadError('')
+    try {
+      const media = await uploadAdminMedia(file)
+      insertHtml(
+        `<figure class="article-media"><img src="${escapeHtml(media.url)}" alt="${escapeHtml(
+          file.name.replace(/\.[^.]+$/, ''),
+        )}" /><figcaption>${escapeHtml(file.name)}</figcaption></figure>`,
+      )
+    } catch (error) {
+      setUploadError(error.message || 'Не удалось загрузить медиа.')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  function handleEditorDrop(event) {
+    const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith('image/'))
+    if (!file) {
+      return
+    }
+    event.preventDefault()
+    uploadImage(file)
+  }
+
+  function handleEditorPaste(event) {
+    const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
+    if (!file) {
+      return
+    }
+    event.preventDefault()
+    uploadImage(file)
   }
 
   function insertButton() {
@@ -517,6 +575,14 @@ function NewsRichEditor({ value, onChange, language }) {
 
   return (
     <div className="news-rich-editor">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="news-upload-input"
+        onChange={(event) => uploadImage(event.target.files?.[0])}
+      />
+
       <div className="news-rich-topline">
         <div>
           <span>{language.toUpperCase()}</span>
@@ -586,8 +652,11 @@ function NewsRichEditor({ value, onChange, language }) {
           <button type="button" onClick={insertLink}>
             Ссылка
           </button>
+          <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? 'Загрузка...' : 'С ПК'}
+          </button>
           <button type="button" onClick={insertImage}>
-            Медиа
+            URL медиа
           </button>
           <button type="button" onClick={insertButton}>
             Кнопка
@@ -628,8 +697,34 @@ function NewsRichEditor({ value, onChange, language }) {
           data-placeholder={emptyLabel}
           suppressContentEditableWarning
           onInput={syncFromCanvas}
+          onDrop={handleEditorDrop}
+          onDragOver={(event) => event.preventDefault()}
+          onPaste={handleEditorPaste}
         />
       )}
+
+      <div className="news-editor-inspector">
+        <div>
+          <span>Блок</span>
+          <strong>Медиа и структура</strong>
+          <p>Загрузите изображение с компьютера или добавьте готовые блоки статьи.</p>
+        </div>
+        <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+          {uploading ? 'Загружаем...' : 'Загрузить медиа'}
+        </button>
+        <div className="news-inspector-actions">
+          <button type="button" onClick={insertLead}>
+            Лид-абзац
+          </button>
+          <button type="button" onClick={insertSignalCard}>
+            Блок сигнала
+          </button>
+          <button type="button" onClick={() => insertHtml('<blockquote>Важная мысль материала.</blockquote>')}>
+            Цитата
+          </button>
+        </div>
+        {uploadError && <p className="news-upload-error">{uploadError}</p>}
+      </div>
     </div>
   )
 }
