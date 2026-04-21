@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createAdmin,
+  createNewsCategory,
   createNewsItem,
   deleteNewsItem,
   fetchAdminNews,
   fetchAdmins,
   fetchMailTemplates,
+  fetchNewsCategories,
   getAdminMe,
   loginAdmin,
   logoutAdmin,
@@ -795,12 +797,14 @@ export function AdminPage({ onNavigate }) {
   const [login, setLogin] = useState('Admin')
   const [password, setPassword] = useState('')
   const [news, setNews] = useState([])
+  const [newsCategories, setNewsCategories] = useState([])
   const [admins, setAdmins] = useState([])
   const [mailTemplates, setMailTemplates] = useState([])
   const [selectedMailKind, setSelectedMailKind] = useState('registration')
   const [activeSection, setActiveSection] = useState('mail')
   const [mailForm, setMailForm] = useState(emptyMailForm)
   const [newsForm, setNewsForm] = useState(emptyNewsForm)
+  const [newCategoryTitle, setNewCategoryTitle] = useState('')
   const [adminForm, setAdminForm] = useState({ login: '', password: '', role: 'admin' })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -814,6 +818,7 @@ export function AdminPage({ onNavigate }) {
 
   const activeMenuItem = adminMenuItems.find((item) => item.key === activeSection) || adminMenuItems[0]
   const activeMailTab = mailTabs.find((tab) => tab.kind === selectedMailKind) || mailTabs[0]
+  const categoryOptions = newsCategories.length ? newsCategories : [{ slug: 'team', title: 'Команда' }]
   const enabledMailCount = mailTemplates.filter((item) => item.isEnabled).length
   const activeAdminsCount = admins.filter((item) => item.isActive).length
 
@@ -823,14 +828,16 @@ export function AdminPage({ onNavigate }) {
   }
 
   async function loadAdminData() {
-    const [nextNews, nextAdmins, nextMailTemplates] = await Promise.all([
+    const [nextNews, nextAdmins, nextMailTemplates, nextCategories] = await Promise.all([
       fetchAdminNews(),
       fetchAdmins(),
       fetchMailTemplates(),
+      fetchNewsCategories(),
     ])
     setNews(nextNews)
     setAdmins(nextAdmins)
     setMailTemplates(nextMailTemplates)
+    setNewsCategories(nextCategories)
   }
 
   useEffect(() => {
@@ -888,6 +895,13 @@ export function AdminPage({ onNavigate }) {
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [isAdminMenuOpen])
+
+  useEffect(() => {
+    if (!newsCategories.length || newsForm.category) {
+      return
+    }
+    setNewsForm((current) => ({ ...current, category: newsCategories[0].slug }))
+  }, [newsCategories, newsForm.category])
 
   async function handleLogin(event) {
     event.preventDefault()
@@ -959,6 +973,29 @@ export function AdminPage({ onNavigate }) {
       setNews(await fetchAdminNews())
     } catch (err) {
       setError(err.message || 'Не удалось сохранить новость.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleCreateCategory(event) {
+    event.preventDefault()
+    const title = newCategoryTitle.trim()
+    if (!title) {
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const category = await createNewsCategory({ title })
+      setNewsCategories(await fetchNewsCategories())
+      setNewsForm((current) => ({ ...current, category: category.slug }))
+      setNewCategoryTitle('')
+      setMessage(`Категория "${category.title}" добавлена.`)
+    } catch (err) {
+      setError(err.message || 'Не удалось создать категорию.')
     } finally {
       setBusy(false)
     }
@@ -1301,13 +1338,32 @@ export function AdminPage({ onNavigate }) {
                   onChange={(event) => setNewsForm({ ...newsForm, date: event.target.value })}
                 />
               </label>
-              <label>
+              <div className="admin-category-picker">
                 <span>Категория</span>
-                <input
+                <select
                   value={newsForm.category}
                   onChange={(event) => setNewsForm({ ...newsForm, category: event.target.value })}
-                />
-              </label>
+                >
+                  {categoryOptions.map((category) => (
+                    <option key={category.slug} value={category.slug}>
+                      {category.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="admin-category-create">
+                <label>
+                  <span>Новая категория</span>
+                  <input
+                    value={newCategoryTitle}
+                    onChange={(event) => setNewCategoryTitle(event.target.value)}
+                    placeholder="Например: Аналитика"
+                  />
+                </label>
+                <button type="button" onClick={handleCreateCategory} disabled={busy || !newCategoryTitle.trim()}>
+                  Добавить
+                </button>
+              </div>
               <label className="admin-checkbox">
                 <input
                   type="checkbox"

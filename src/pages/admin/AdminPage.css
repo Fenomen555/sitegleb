@@ -95,7 +95,8 @@
 }
 
 .admin-page input,
-.admin-page textarea {
+.admin-page textarea,
+.admin-page select {
   width: 100%;
   border: 1px solid rgba(111, 157, 199, 0.38);
   border-radius: 14px;
@@ -112,7 +113,8 @@
 }
 
 .admin-page input:focus,
-.admin-page textarea:focus {
+.admin-page textarea:focus,
+.admin-page select:focus {
   border-color: rgba(43, 137, 224, 0.75);
   box-shadow: 0 0 0 4px rgba(43, 155, 235, 0.14);
 }
@@ -1187,12 +1189,40 @@
   font-weight: 800;
 }
 
-.admin-form-grid,
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.72rem;
+  align-items: end;
+}
+
 .admin-create-admin {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.72rem;
   align-items: end;
+}
+
+.admin-category-picker,
+.admin-category-create {
+  display: grid;
+  gap: 0.56rem;
+}
+
+.admin-category-create {
+  grid-column: span 2;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.admin-category-create label {
+  display: grid;
+  gap: 0.56rem;
+}
+
+.admin-category-create button {
+  min-height: 48px;
+  padding-inline: 1rem !important;
 }
 
 .admin-checkbox {
@@ -1316,6 +1346,11 @@
   .admin-locale-grid,
   .mail-settings-row,
   .mail-template-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-category-create {
+    grid-column: auto;
     grid-template-columns: 1fr;
   }
 

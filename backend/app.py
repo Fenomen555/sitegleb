@@ -135,6 +135,16 @@ def serialize_news(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def serialize_news_category(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "slug": row["slug"],
+        "title": row["title"],
+        "isActive": bool(row["is_active"]),
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
 def serialize_admin(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -222,6 +232,45 @@ def normalize_email(value: str) -> str:
     if address != email or "@" not in address or "." not in address.rsplit("@", 1)[-1]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid email")
     return address
+
+
+def slugify_category(value: str) -> str:
+    translit = {
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "ё": "e",
+        "ж": "zh",
+        "з": "z",
+        "и": "i",
+        "й": "y",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "х": "h",
+        "ц": "c",
+        "ч": "ch",
+        "ш": "sh",
+        "щ": "sch",
+        "ы": "y",
+        "э": "e",
+        "ю": "yu",
+        "я": "ya",
+    }
+    normalized = "".join(translit.get(char, char) for char in value.lower())
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    return normalized[:60] or f"category-{secrets.token_hex(3)}"
 
 
 def render_mail_template(value: str, variables: dict[str, str], html: bool = False) -> str:
@@ -355,6 +404,20 @@ def create_tables() -> None:
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS news_categories (
+                  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  slug VARCHAR(60) NOT NULL UNIQUE,
+                  title VARCHAR(120) NOT NULL,
+                  is_active TINYINT(1) NOT NULL DEFAULT 1,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_news_categories_active (is_active),
+                  INDEX idx_news_categories_title (title)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS news (
                   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                   slug VARCHAR(160) NOT NULL UNIQUE,
@@ -402,6 +465,37 @@ def create_tables() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """
             )
+
+
+def seed_news_categories() -> None:
+    default_categories = {
+        "team": "Команда",
+        "education": "Обучение",
+        "strategy": "Стратегии",
+        "market": "Рынок",
+        "signals": "Сигналы",
+    }
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            for slug, title in default_categories.items():
+                cursor.execute(
+                    """
+                    INSERT IGNORE INTO news_categories (slug, title, is_active)
+                    VALUES (%s, %s, 1)
+                    """,
+                    (slug, title),
+                )
+            cursor.execute("SELECT DISTINCT category FROM news WHERE category IS NOT NULL AND category <> ''")
+            for row in cursor.fetchall():
+                slug = slugify_category(row["category"])
+                cursor.execute(
+                    """
+                    INSERT IGNORE INTO news_categories (slug, title, is_active)
+                    VALUES (%s, %s, 1)
+                    """,
+                    (slug, row["category"]),
+                )
 
 
 def bootstrap_admin() -> None:
@@ -570,8 +664,10 @@ def seed_news_if_empty() -> None:
 def startup() -> None:
     create_tables()
     bootstrap_admin()
+    seed_news_categories()
     seed_mail_templates()
     seed_news_if_empty()
+    seed_news_categories()
 
 
 class LocalizedNews(BaseModel):
@@ -587,6 +683,11 @@ class NewsPayload(BaseModel):
     isPublished: bool = True
     ru: LocalizedNews
     en: LocalizedNews
+
+
+class NewsCategoryPayload(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    slug: str | None = Field(default=None, max_length=60, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class LoginPayload(BaseModel):
@@ -842,6 +943,47 @@ def update_admin_mail_template(
             return serialize_mail_template(cursor.fetchone())
 
 
+@app.get("/api/admin/news-categories")
+def get_admin_news_categories(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    del admin
+    seed_news_categories()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM news_categories
+                WHERE is_active = 1
+                ORDER BY title ASC, slug ASC
+                """
+            )
+            return [serialize_news_category(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/admin/news-categories", status_code=status.HTTP_201_CREATED)
+def create_admin_news_category(
+    payload: NewsCategoryPayload,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    title = payload.title.strip()
+    slug = payload.slug or slugify_category(title)
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO news_categories (slug, title, is_active)
+                VALUES (%s, %s, 1)
+                ON DUPLICATE KEY UPDATE
+                  title = VALUES(title),
+                  is_active = 1
+                """,
+                (slug, title),
+            )
+            cursor.execute("SELECT * FROM news_categories WHERE slug = %s", (slug,))
+            return serialize_news_category(cursor.fetchone())
+
+
 @app.get("/api/admin/news")
 def get_admin_news(admin: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
     with get_connection() as conn:
@@ -855,6 +997,13 @@ def create_news(payload: NewsPayload, admin: dict[str, Any] = Depends(require_ad
     del admin
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT IGNORE INTO news_categories (slug, title, is_active)
+                VALUES (%s, %s, 1)
+                """,
+                (payload.category, payload.category),
+            )
             try:
                 cursor.execute(
                     """
@@ -887,6 +1036,13 @@ def update_news(news_id: int, payload: NewsPayload, admin: dict[str, Any] = Depe
     del admin
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT IGNORE INTO news_categories (slug, title, is_active)
+                VALUES (%s, %s, 1)
+                """,
+                (payload.category, payload.category),
+            )
             try:
                 cursor.execute(
                     """
