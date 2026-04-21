@@ -427,6 +427,7 @@ function NewsRichEditor({ value, onChange, language }) {
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
   const [sourceMode, setSourceMode] = useState(false)
+  const [isInserterOpen, setIsInserterOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
 
@@ -505,6 +506,7 @@ function NewsRichEditor({ value, onChange, language }) {
           file.name.replace(/\.[^.]+$/, ''),
         )}" /><figcaption>${escapeHtml(file.name)}</figcaption></figure>`,
       )
+      setIsInserterOpen(false)
     } catch (error) {
       setUploadError(error.message || 'Не удалось загрузить медиа.')
     } finally {
@@ -540,16 +542,19 @@ function NewsRichEditor({ value, onChange, language }) {
     }
     const label = window.prompt('Текст кнопки', 'Перейти') || 'Перейти'
     insertHtml(`<p><a class="article-action" href="${escapeHtml(url)}">${escapeHtml(label)}</a></p>`)
+    setIsInserterOpen(false)
   }
 
   function insertSignalCard() {
     insertHtml(
       '<aside class="article-signal"><strong>Идея дня</strong><span>EUR/USD в фокусе: дождаться подтверждения тренда и работать только по плану риска.</span></aside>',
     )
+    setIsInserterOpen(false)
   }
 
   function insertLead() {
     insertHtml('<p class="article-lead">Ключевой вывод материала: коротко, уверенно и по делу.</p>')
+    setIsInserterOpen(false)
   }
 
   function insertTable() {
@@ -562,6 +567,14 @@ function NewsRichEditor({ value, onChange, language }) {
     const cells = Array.from({ length: columns }, () => '<td>Текст</td>').join('')
     const tableRows = Array.from({ length: rows }, () => `<tr>${cells}</tr>`).join('')
     insertHtml(`<table><tbody>${tableRows}</tbody></table>`)
+    setIsInserterOpen(false)
+  }
+
+  function insertPullQuote() {
+    insertHtml(
+      '<blockquote class="article-pullquote">Сильная мысль или важный вывод, который должен визуально выделиться в статье.</blockquote>',
+    )
+    setIsInserterOpen(false)
   }
 
   function toggleSourceMode() {
@@ -588,10 +601,50 @@ function NewsRichEditor({ value, onChange, language }) {
           <span>{language.toUpperCase()}</span>
           <strong>{sourceMode ? 'HTML источник' : 'Визуальный редактор'}</strong>
         </div>
-        <button type="button" className={sourceMode ? 'active' : ''} onClick={toggleSourceMode}>
-          {sourceMode ? 'Визуально' : 'HTML'}
-        </button>
+        <div className="news-editor-mode-actions">
+          <button type="button" className="news-inserter-button" onClick={() => setIsInserterOpen((current) => !current)}>
+            + Блок
+          </button>
+          <button type="button" className={sourceMode ? 'active' : ''} onClick={toggleSourceMode}>
+            {sourceMode ? 'Визуально' : 'HTML'}
+          </button>
+        </div>
       </div>
+
+      {isInserterOpen && (
+        <div className="news-block-popover" role="menu">
+          <button type="button" onClick={() => fileInputRef.current?.click()}>
+            <span>Медиа</span>
+            <strong>Изображение с ПК</strong>
+            <small>Загрузить файл и вставить внутрь статьи.</small>
+          </button>
+          <button type="button" onClick={insertLead}>
+            <span>Текст</span>
+            <strong>Лид-абзац</strong>
+            <small>Крупный вводный абзац для начала материала.</small>
+          </button>
+          <button type="button" onClick={insertPullQuote}>
+            <span>Акцент</span>
+            <strong>Выносная цитата</strong>
+            <small>Большой смысловой блок, как в журнальной верстке.</small>
+          </button>
+          <button type="button" onClick={insertSignalCard}>
+            <span>Трейдинг</span>
+            <strong>Карточка сигнала</strong>
+            <small>Готовый блок под торговую идею дня.</small>
+          </button>
+          <button type="button" onClick={insertTable}>
+            <span>Данные</span>
+            <strong>Таблица</strong>
+            <small>Для расписаний, параметров и сравнений.</small>
+          </button>
+          <button type="button" onClick={insertButton}>
+            <span>CTA</span>
+            <strong>Кнопка</strong>
+            <small>Добавить заметную ссылку в текст.</small>
+          </button>
+        </div>
+      )}
 
       <div className="news-rich-toolbar" aria-label={`Панель редактора ${language.toUpperCase()}`}>
         <div className="news-toolbar-group">
@@ -703,6 +756,13 @@ function NewsRichEditor({ value, onChange, language }) {
         />
       )}
 
+      {!sourceMode && (
+        <div className="news-drop-hint">
+          <strong>Медиа можно загрузить с компьютера</strong>
+          <span>Перетащите изображение сюда, вставьте из буфера или нажмите “+ Блок”.</span>
+        </div>
+      )}
+
       <div className="news-editor-inspector">
         <div>
           <span>Блок</span>
@@ -719,8 +779,8 @@ function NewsRichEditor({ value, onChange, language }) {
           <button type="button" onClick={insertSignalCard}>
             Блок сигнала
           </button>
-          <button type="button" onClick={() => insertHtml('<blockquote>Важная мысль материала.</blockquote>')}>
-            Цитата
+          <button type="button" onClick={insertPullQuote}>
+            Выносная цитата
           </button>
         </div>
         {uploadError && <p className="news-upload-error">{uploadError}</p>}

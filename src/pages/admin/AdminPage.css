@@ -769,9 +769,82 @@
   font-size: 0.94rem;
 }
 
+.news-editor-mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.news-inserter-button {
+  color: #ffffff !important;
+  border-color: transparent !important;
+  background:
+    radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.44), transparent 32%),
+    linear-gradient(92deg, #19b4ff, #3156ec) !important;
+  box-shadow: 0 12px 24px rgba(48, 111, 217, 0.18);
+}
+
 .news-rich-topline button.active {
   color: #fff !important;
   background: linear-gradient(92deg, #19b4ff, #3156ec) !important;
+}
+
+.news-block-popover {
+  position: absolute;
+  top: 58px;
+  right: 0.8rem;
+  z-index: 6;
+  width: min(360px, calc(100% - 1.6rem));
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.58rem;
+  border: 1px solid rgba(116, 162, 204, 0.34);
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(236, 247, 255, 0.94)),
+    radial-gradient(circle at 100% 0%, rgba(31, 158, 255, 0.14), transparent 38%);
+  box-shadow: 0 26px 70px rgba(17, 52, 89, 0.18);
+  animation: adminPopoverIn 0.22s ease both;
+}
+
+.news-block-popover button {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 0.12rem 0.7rem;
+  width: 100%;
+  padding: 0.72rem 0.78rem !important;
+  text-align: left;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+.news-block-popover button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(40, 137, 230, 0.44) !important;
+  background: rgba(232, 245, 255, 0.92) !important;
+}
+
+.news-block-popover span {
+  grid-row: span 2;
+  display: inline-grid;
+  place-items: center;
+  min-height: 46px;
+  border-radius: 14px;
+  color: #1f70bb;
+  background: rgba(220, 240, 255, 0.86);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.news-block-popover strong {
+  color: #12375e;
+}
+
+.news-block-popover small {
+  color: #5d7f9e;
+  line-height: 1.35;
 }
 
 .news-rich-toolbar {
@@ -884,6 +957,19 @@
   font-weight: 700;
 }
 
+.news-editor-canvas .article-pullquote {
+  padding: clamp(1.1rem, 3vw, 1.8rem);
+  border: 0;
+  border-radius: 22px;
+  color: #0e3156;
+  background:
+    radial-gradient(circle at 12% 16%, rgba(31, 158, 255, 0.18), transparent 32%),
+    linear-gradient(135deg, rgba(232, 246, 255, 0.95), rgba(255, 255, 255, 0.92));
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  line-height: 1.35;
+  box-shadow: 0 18px 42px rgba(16, 57, 100, 0.12);
+}
+
 .news-editor-canvas img {
   max-width: 100%;
   height: auto;
@@ -942,6 +1028,28 @@
 
 .news-editor-canvas .article-signal strong {
   color: #0f2f51;
+}
+
+.news-drop-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.72rem 0.85rem;
+  border-top: 1px dashed rgba(116, 162, 204, 0.34);
+  background:
+    linear-gradient(90deg, rgba(223, 241, 255, 0.78), rgba(255, 255, 255, 0.5)),
+    radial-gradient(circle at 0% 50%, rgba(31, 158, 255, 0.14), transparent 28%);
+}
+
+.news-drop-hint strong {
+  color: #12375e;
+}
+
+.news-drop-hint span {
+  color: #5a7fa3;
+  font-size: 0.84rem;
+  line-height: 1.42;
 }
 
 .news-editor-inspector {
@@ -1006,6 +1114,18 @@
   grid-column: 1 / -1;
   color: #9e2340 !important;
   font-weight: 800;
+}
+
+@keyframes adminPopoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .mail-variable-row {
@@ -1371,6 +1491,29 @@
   .news-rich-topline {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .news-editor-mode-actions,
+  .news-drop-hint {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .news-block-popover {
+    position: static;
+    width: auto;
+    margin: 0.65rem;
+  }
+
+  .news-block-popover button {
+    grid-template-columns: 1fr;
+  }
+
+  .news-block-popover span {
+    grid-row: auto;
+    justify-content: flex-start;
+    min-height: 34px;
+    padding: 0 0.72rem;
   }
 
   .news-editor-inspector {
